@@ -1,14 +1,12 @@
-FROM ubuntu:22.04
+FROM alpine:3.19
 
-ENV DEBIAN_FRONTEND=noninteractive
-
-RUN apt-get update && apt-get install -y \
+RUN apk add --no-cache \
     gcc \
+    musl-dev \
     make \
-    libcurl4-openssl-dev \
+    curl-dev \
     valgrind \
-    gdb \
-    && rm -rf /var/lib/apt/lists/*
+    gdb
 
 WORKDIR /axon
 
