@@ -5,6 +5,7 @@
 #include <unistd.h>
 #include <signal.h>
 #include <errno.h>
+#include "builtins.h"
 
 #define AXON_INPUT_MAX 4096
 #define PROMPT_MAX 1024
@@ -71,10 +72,14 @@ int main(void)
             continue;
         }
 
-        /* TODO: parse and execute */
+        if (builtin_execute(line)) {
+            continue;
+        }
+
+        /* TODO: parse and execute external commands */
         fprintf(stdout, "[debug] you typed: %s\n", line);
     }
 
-    fprintf(stderr, "\nexit\n");
+    fprintf(stderr, "\n");
     return 0;
 }
