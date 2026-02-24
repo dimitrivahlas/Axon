@@ -7,7 +7,7 @@
 
 #define AI_TIMEOUT_SECS 30
 #define RESPONSE_BUF_MAX 65536
-#define PAYLOAD_MAX 32768
+#define PAYLOAD_MAX 65536
 
 typedef struct {
     char data[RESPONSE_BUF_MAX];
@@ -29,6 +29,23 @@ static size_t write_callback(void *ptr, size_t size, size_t nmemb, void *userdat
     return size * nmemb;
 }
 
+static size_t json_escape(char *out, size_t max, const char *src)
+{
+    size_t pos = 0;
+    for (const char *p = src; *p != '\0' && pos < max - 2; p++) {
+        switch (*p) {
+        case '"':  out[pos++] = '\\'; out[pos++] = '"'; break;
+        case '\\': out[pos++] = '\\'; out[pos++] = '\\'; break;
+        case '\n': out[pos++] = '\\'; out[pos++] = 'n'; break;
+        case '\r': out[pos++] = '\\'; out[pos++] = 'r'; break;
+        case '\t': out[pos++] = '\\'; out[pos++] = 't'; break;
+        default:   out[pos++] = *p; break;
+        }
+    }
+    out[pos] = '\0';
+    return pos;
+}
+
 static void build_history_json(char *out, size_t max, history_t *hist)
 {
     size_t pos = 0;
@@ -36,11 +53,15 @@ static void build_history_json(char *out, size_t max, history_t *hist)
 
     for (int i = 0; i < hist->count; i++) {
         history_entry_t *e = &hist->entries[i];
+        char esc_cmd[8192], esc_cwd[2048];
+        json_escape(esc_cmd, sizeof(esc_cmd), e->raw_line);
+        json_escape(esc_cwd, sizeof(esc_cwd), e->cwd);
+
         if (i > 0)
             pos += (size_t)snprintf(out + pos, max - pos, ",");
         pos += (size_t)snprintf(out + pos, max - pos,
             "{\"command\":\"%s\",\"exit_code\":%d,\"elapsed_ms\":%.1f,\"cwd\":\"%s\"}",
-            e->raw_line, e->exit_code, e->elapsed_ms, e->cwd);
+            esc_cmd, e->exit_code, e->elapsed_ms, esc_cwd);
     }
 
     snprintf(out + pos, max - pos, "]");
@@ -101,7 +122,10 @@ static int call_claude(const char *system_prompt, const char *user_msg)
         return -1;
     }
 
-    /* Build JSON payload — escape is minimal since we control the inputs */
+    char esc_system[4096], esc_user[PAYLOAD_MAX];
+    json_escape(esc_system, sizeof(esc_system), system_prompt);
+    json_escape(esc_user, sizeof(esc_user), user_msg);
+
     char payload[PAYLOAD_MAX];
     snprintf(payload, sizeof(payload),
         "{"
@@ -110,7 +134,7 @@ static int call_claude(const char *system_prompt, const char *user_msg)
         "\"system\":\"%s\","
         "\"messages\":[{\"role\":\"user\",\"content\":\"%s\"}]"
         "}",
-        system_prompt, user_msg);
+        esc_system, esc_user);
 
     struct curl_slist *headers = NULL;
     char auth_header[256];
@@ -184,7 +208,7 @@ int ai_ask(const char *question, history_t *hist, const char *cwd)
 
     char user_msg[PAYLOAD_MAX];
     snprintf(user_msg, sizeof(user_msg),
-        "Recent command history: %s\\n\\nQuestion: %s",
+        "Recent command history: %s\n\nQuestion: %s",
         history_json, question);
 
     return call_claude(system_prompt, user_msg);
@@ -205,7 +229,7 @@ int ai_suggest(const char *intent, history_t *hist, const char *cwd)
 
     char user_msg[PAYLOAD_MAX];
     snprintf(user_msg, sizeof(user_msg),
-        "Recent command history: %s\\n\\nI want to: %s",
+        "Recent command history: %s\n\nI want to: %s",
         history_json, intent);
 
     return call_claude(system_prompt, user_msg);
