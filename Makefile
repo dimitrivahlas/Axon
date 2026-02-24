@@ -19,8 +19,17 @@ $(BIN): $(OBJ)
 $(SRC_DIR)/%.o: $(SRC_DIR)/%.c
 	$(CC) $(CFLAGS) -c -o $@ $<
 
+TEST_DIR = tests
+UNITY_SRC = $(TEST_DIR)/unity.c
+
+test_parser: $(SRC_DIR)/parser.o $(TEST_DIR)/test_parser.c $(UNITY_SRC)
+	$(CC) $(CFLAGS) -o $(TEST_DIR)/$@ $(TEST_DIR)/test_parser.c $(SRC_DIR)/parser.o $(UNITY_SRC)
+
+test_executor: $(SRC_DIR)/parser.o $(SRC_DIR)/executor.o $(TEST_DIR)/test_executor.c $(UNITY_SRC)
+	$(CC) $(CFLAGS) -o $(TEST_DIR)/$@ $(TEST_DIR)/test_executor.c $(SRC_DIR)/executor.o $(SRC_DIR)/parser.o $(UNITY_SRC)
+
 clean:
-	rm -f $(SRC_DIR)/*.o $(BIN)
+	rm -f $(SRC_DIR)/*.o $(BIN) $(TEST_DIR)/test_parser $(TEST_DIR)/test_executor
 
 docker:
 	docker build -t axon -f docker/Dockerfile .
@@ -28,5 +37,9 @@ docker:
 run: build
 	./$(BIN)
 
-test:
-	@echo "No tests yet"
+test: test_parser test_executor
+	@echo "=== Parser Tests ==="
+	@./$(TEST_DIR)/test_parser
+	@echo ""
+	@echo "=== Executor Tests ==="
+	@./$(TEST_DIR)/test_executor
