@@ -122,7 +122,7 @@ static int call_claude(const char *system_prompt, const char *user_msg)
         return -1;
     }
 
-    char esc_system[4096], esc_user[PAYLOAD_MAX];
+    char esc_system[4096], esc_user[32768];
     json_escape(esc_system, sizeof(esc_system), system_prompt);
     json_escape(esc_user, sizeof(esc_user), user_msg);
 
