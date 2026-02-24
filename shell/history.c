@@ -24,6 +24,8 @@ void history_add(history_t *hist, const char *line, cmd_result_t *result, const 
     e->elapsed_ms = result->elapsed_ms;
     strncpy(e->cwd, cwd, sizeof(e->cwd) - 1);
     e->cwd[sizeof(e->cwd) - 1] = '\0';
+    strncpy(e->stderr_output, result->stderr_capture, sizeof(e->stderr_output) - 1);
+    e->stderr_output[sizeof(e->stderr_output) - 1] = '\0';
 
     hist->count++;
 }

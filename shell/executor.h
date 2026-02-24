@@ -3,9 +3,12 @@
 
 #include "parser.h"
 
+#define AXON_CAPTURE_MAX 4096
+
 typedef struct {
     int exit_code;
     double elapsed_ms;
+    char stderr_capture[AXON_CAPTURE_MAX];
 } cmd_result_t;
 
 /*

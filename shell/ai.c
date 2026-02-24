@@ -53,15 +53,17 @@ static void build_history_json(char *out, size_t max, history_t *hist)
 
     for (int i = 0; i < hist->count; i++) {
         history_entry_t *e = &hist->entries[i];
-        char esc_cmd[8192], esc_cwd[2048];
+        char esc_cmd[8192], esc_cwd[2048], esc_stderr[8192];
         json_escape(esc_cmd, sizeof(esc_cmd), e->raw_line);
         json_escape(esc_cwd, sizeof(esc_cwd), e->cwd);
+        json_escape(esc_stderr, sizeof(esc_stderr), e->stderr_output);
 
         if (i > 0)
             pos += (size_t)snprintf(out + pos, max - pos, ",");
         pos += (size_t)snprintf(out + pos, max - pos,
-            "{\"command\":\"%s\",\"exit_code\":%d,\"elapsed_ms\":%.1f,\"cwd\":\"%s\"}",
-            esc_cmd, e->exit_code, e->elapsed_ms, esc_cwd);
+            "{\"command\":\"%s\",\"exit_code\":%d,\"elapsed_ms\":%.1f,"
+            "\"cwd\":\"%s\",\"stderr\":\"%s\"}",
+            esc_cmd, e->exit_code, e->elapsed_ms, esc_cwd, esc_stderr);
     }
 
     snprintf(out + pos, max - pos, "]");
