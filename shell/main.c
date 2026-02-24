@@ -8,6 +8,8 @@
 #include "builtins.h"
 #include "parser.h"
 #include "executor.h"
+#include "history.h"
+#include "ai.h"
 
 #define AXON_INPUT_MAX 4096
 #define PROMPT_MAX 1024
@@ -68,15 +70,47 @@ int main(void)
     sigemptyset(&sa.sa_mask);
     sigaction(SIGINT, &sa, NULL);
 
+    history_t hist;
+    history_init(&hist);
+
     char *line;
     while ((line = read_line()) != NULL) {
         if (line[0] == '\0') {
             continue;
         }
 
+        /* AI: ? <question> */
+        if (line[0] == '?' && (line[1] == ' ' || line[1] == '\t')) {
+            char cwd[PROMPT_MAX];
+            if (getcwd(cwd, sizeof(cwd)) == NULL)
+                strncpy(cwd, "???", sizeof(cwd));
+            char *question = line + 2;
+            while (*question == ' ' || *question == '\t')
+                question++;
+            ai_ask(question, &hist, cwd);
+            continue;
+        }
+
+        /* AI: !! <intent> */
+        if (line[0] == '!' && line[1] == '!' && (line[2] == ' ' || line[2] == '\t')) {
+            char cwd[PROMPT_MAX];
+            if (getcwd(cwd, sizeof(cwd)) == NULL)
+                strncpy(cwd, "???", sizeof(cwd));
+            char *intent = line + 3;
+            while (*intent == ' ' || *intent == '\t')
+                intent++;
+            ai_suggest(intent, &hist, cwd);
+            continue;
+        }
+
         if (builtin_execute(line)) {
             continue;
         }
+
+        /* Save a copy of the raw line before parsing mutates it */
+        char line_copy[AXON_INPUT_MAX];
+        strncpy(line_copy, line, sizeof(line_copy) - 1);
+        line_copy[sizeof(line_copy) - 1] = '\0';
 
         pipeline_t pl;
         if (parse_pipeline(line, &pl) != 0) {
@@ -91,6 +125,12 @@ int main(void)
         if (execute_pipeline(&pl, &result) != 0) {
             continue;
         }
+
+        /* Record in history */
+        char cwd[PROMPT_MAX];
+        if (getcwd(cwd, sizeof(cwd)) == NULL)
+            strncpy(cwd, "???", sizeof(cwd));
+        history_add(&hist, line_copy, &result, cwd);
 
         if (result.exit_code != 0) {
             fprintf(stderr, "\033[1;31m[exit %d | %.1fms]\033[0m\n",
