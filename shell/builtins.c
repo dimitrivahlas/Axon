@@ -45,7 +45,8 @@ int builtin_execute(char *line)
         return builtin_cd(arg);
     }
 
-    if (strcmp(line, "exit") == 0) {
+    if (strncmp(line, "exit", 4) == 0 &&
+        (line[4] == ' ' || line[4] == '\t' || line[4] == '\0')) {
         return builtin_exit();
     }
 
