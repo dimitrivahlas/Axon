@@ -1,4 +1,5 @@
 #define _POSIX_C_SOURCE 200809L
+#include <stdlib.h>
 #include <string.h>
 #include "unity.h"
 #include "../shell/parser.h"
@@ -239,6 +240,64 @@ void test_redirect_missing_filename(void)
     TEST_ASSERT_EQUAL_INT(-1, parse_pipeline(line, &pl));
 }
 
+/* --- Env expansion tests --- */
+
+void test_expand_env_var(void)
+{
+    setenv("AXON_TEST_VAR", "hello", 1);
+    char out[4096];
+    TEST_ASSERT_EQUAL_INT(0, expand_env("echo $AXON_TEST_VAR", out, sizeof(out), 0));
+    TEST_ASSERT_EQUAL_STRING("echo hello", out);
+    unsetenv("AXON_TEST_VAR");
+}
+
+void test_expand_env_braces(void)
+{
+    setenv("AXON_TEST_VAR", "world", 1);
+    char out[4096];
+    TEST_ASSERT_EQUAL_INT(0, expand_env("echo ${AXON_TEST_VAR}!", out, sizeof(out), 0));
+    TEST_ASSERT_EQUAL_STRING("echo world!", out);
+    unsetenv("AXON_TEST_VAR");
+}
+
+void test_expand_exit_code(void)
+{
+    char out[4096];
+    TEST_ASSERT_EQUAL_INT(0, expand_env("echo $?", out, sizeof(out), 42));
+    TEST_ASSERT_EQUAL_STRING("echo 42", out);
+}
+
+void test_expand_single_quote_no_expand(void)
+{
+    setenv("AXON_TEST_VAR", "nope", 1);
+    char out[4096];
+    TEST_ASSERT_EQUAL_INT(0, expand_env("echo '$AXON_TEST_VAR'", out, sizeof(out), 0));
+    TEST_ASSERT_EQUAL_STRING("echo '$AXON_TEST_VAR'", out);
+    unsetenv("AXON_TEST_VAR");
+}
+
+void test_expand_undefined_var(void)
+{
+    unsetenv("AXON_NONEXISTENT");
+    char out[4096];
+    TEST_ASSERT_EQUAL_INT(0, expand_env("echo $AXON_NONEXISTENT end", out, sizeof(out), 0));
+    TEST_ASSERT_EQUAL_STRING("echo  end", out);
+}
+
+void test_expand_no_vars(void)
+{
+    char out[4096];
+    TEST_ASSERT_EQUAL_INT(0, expand_env("ls -la /tmp", out, sizeof(out), 0));
+    TEST_ASSERT_EQUAL_STRING("ls -la /tmp", out);
+}
+
+void test_expand_lone_dollar(void)
+{
+    char out[4096];
+    TEST_ASSERT_EQUAL_INT(0, expand_env("echo $ end", out, sizeof(out), 0));
+    TEST_ASSERT_EQUAL_STRING("echo $ end", out);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -263,5 +322,12 @@ int main(void)
     RUN_TEST(test_redirect_both);
     RUN_TEST(test_empty_pipe_stage_error);
     RUN_TEST(test_redirect_missing_filename);
+    RUN_TEST(test_expand_env_var);
+    RUN_TEST(test_expand_env_braces);
+    RUN_TEST(test_expand_exit_code);
+    RUN_TEST(test_expand_single_quote_no_expand);
+    RUN_TEST(test_expand_undefined_var);
+    RUN_TEST(test_expand_no_vars);
+    RUN_TEST(test_expand_lone_dollar);
     return UNITY_END();
 }

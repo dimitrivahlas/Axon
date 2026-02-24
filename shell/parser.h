@@ -33,4 +33,13 @@ int parse_command(char *line, command_t *cmd);
  */
 int parse_pipeline(char *line, pipeline_t *pl);
 
+/*
+ * Expand environment variables in a command line.
+ * Handles $VAR, ${VAR}, and $? (last exit code).
+ * Single-quoted regions are not expanded.
+ * Writes result into out (up to out_max bytes).
+ * Returns 0 on success, -1 on error.
+ */
+int expand_env(const char *line, char *out, size_t out_max, int last_exit_code);
+
 #endif

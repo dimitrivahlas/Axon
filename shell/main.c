@@ -72,6 +72,7 @@ int main(void)
 
     history_t hist;
     history_init(&hist);
+    int last_exit_code = 0;
 
     char *line;
     while ((line = read_line()) != NULL) {
@@ -103,17 +104,23 @@ int main(void)
             continue;
         }
 
-        if (builtin_execute(line)) {
+        /* Expand environment variables */
+        char expanded[AXON_INPUT_MAX];
+        if (expand_env(line, expanded, sizeof(expanded), last_exit_code) != 0) {
             continue;
         }
 
-        /* Save a copy of the raw line before parsing mutates it */
+        if (builtin_execute(expanded)) {
+            continue;
+        }
+
+        /* Save a copy of the expanded line before parsing mutates it */
         char line_copy[AXON_INPUT_MAX];
-        strncpy(line_copy, line, sizeof(line_copy) - 1);
+        strncpy(line_copy, expanded, sizeof(line_copy) - 1);
         line_copy[sizeof(line_copy) - 1] = '\0';
 
         pipeline_t pl;
-        if (parse_pipeline(line, &pl) != 0) {
+        if (parse_pipeline(expanded, &pl) != 0) {
             continue;
         }
 
@@ -131,6 +138,7 @@ int main(void)
         if (getcwd(cwd, sizeof(cwd)) == NULL)
             strncpy(cwd, "???", sizeof(cwd));
         history_add(&hist, line_copy, &result, cwd);
+        last_exit_code = result.exit_code;
 
         if (result.exit_code != 0) {
             fprintf(stderr, "\033[1;31m[exit %d | %.1fms]\033[0m\n",

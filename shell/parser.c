@@ -1,6 +1,8 @@
 #define _POSIX_C_SOURCE 200809L
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 #include "parser.h"
 
 int parse_command(char *line, command_t *cmd)
@@ -147,5 +149,77 @@ int parse_pipeline(char *line, pipeline_t *pl)
         segment = (pipe_pos != NULL) ? pipe_pos + 1 : NULL;
     }
 
+    return 0;
+}
+
+int expand_env(const char *line, char *out, size_t out_max, int last_exit_code)
+{
+    size_t pos = 0;
+    const char *p = line;
+    int in_single_quote = 0;
+
+    while (*p != '\0' && pos < out_max - 1) {
+        if (*p == '\'' && !in_single_quote) {
+            in_single_quote = 1;
+            out[pos++] = *p++;
+        } else if (*p == '\'' && in_single_quote) {
+            in_single_quote = 0;
+            out[pos++] = *p++;
+        } else if (*p == '$' && !in_single_quote) {
+            p++;
+            const char *val = NULL;
+            char exit_buf[16];
+
+            if (*p == '?') {
+                snprintf(exit_buf, sizeof(exit_buf), "%d", last_exit_code);
+                val = exit_buf;
+                p++;
+            } else if (*p == '{') {
+                p++;
+                const char *start = p;
+                while (*p != '\0' && *p != '}')
+                    p++;
+                if (*p == '\0') {
+                    fprintf(stderr, "axon: unclosed ${}\n");
+                    return -1;
+                }
+                size_t name_len = (size_t)(p - start);
+                char name[256];
+                if (name_len >= sizeof(name))
+                    name_len = sizeof(name) - 1;
+                memcpy(name, start, name_len);
+                name[name_len] = '\0';
+                val = getenv(name);
+                p++; /* skip } */
+            } else if (isalpha((unsigned char)*p) || *p == '_') {
+                const char *start = p;
+                while (isalnum((unsigned char)*p) || *p == '_')
+                    p++;
+                size_t name_len = (size_t)(p - start);
+                char name[256];
+                if (name_len >= sizeof(name))
+                    name_len = sizeof(name) - 1;
+                memcpy(name, start, name_len);
+                name[name_len] = '\0';
+                val = getenv(name);
+            } else {
+                /* Lone $ — write it literally */
+                out[pos++] = '$';
+                continue;
+            }
+
+            if (val != NULL) {
+                size_t vlen = strlen(val);
+                if (pos + vlen >= out_max - 1)
+                    vlen = out_max - 1 - pos;
+                memcpy(out + pos, val, vlen);
+                pos += vlen;
+            }
+        } else {
+            out[pos++] = *p++;
+        }
+    }
+
+    out[pos] = '\0';
     return 0;
 }
