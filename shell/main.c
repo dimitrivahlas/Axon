@@ -78,17 +78,17 @@ int main(void)
             continue;
         }
 
-        command_t cmd;
-        if (parse_command(line, &cmd) != 0) {
+        pipeline_t pl;
+        if (parse_pipeline(line, &pl) != 0) {
             continue;
         }
 
-        if (cmd.argc == 0) {
+        if (pl.num_stages == 0) {
             continue;
         }
 
         cmd_result_t result;
-        if (execute_command(&cmd, &result) != 0) {
+        if (execute_pipeline(&pl, &result) != 0) {
             continue;
         }
 

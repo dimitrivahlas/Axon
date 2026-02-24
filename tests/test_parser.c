@@ -136,6 +136,109 @@ void test_tabs_as_separators(void)
     TEST_ASSERT_EQUAL_STRING("world", cmd.argv[2]);
 }
 
+/* --- Pipeline tests --- */
+
+void test_pipeline_single_command(void)
+{
+    char line[] = "ls -la";
+    pipeline_t pl;
+
+    TEST_ASSERT_EQUAL_INT(0, parse_pipeline(line, &pl));
+    TEST_ASSERT_EQUAL_INT(1, pl.num_stages);
+    TEST_ASSERT_EQUAL_INT(2, pl.stages[0].argc);
+    TEST_ASSERT_EQUAL_STRING("ls", pl.stages[0].argv[0]);
+    TEST_ASSERT_EQUAL_STRING("-la", pl.stages[0].argv[1]);
+}
+
+void test_pipeline_two_stages(void)
+{
+    char line[] = "ls | grep .c";
+    pipeline_t pl;
+
+    TEST_ASSERT_EQUAL_INT(0, parse_pipeline(line, &pl));
+    TEST_ASSERT_EQUAL_INT(2, pl.num_stages);
+    TEST_ASSERT_EQUAL_STRING("ls", pl.stages[0].argv[0]);
+    TEST_ASSERT_EQUAL_STRING("grep", pl.stages[1].argv[0]);
+    TEST_ASSERT_EQUAL_STRING(".c", pl.stages[1].argv[1]);
+}
+
+void test_pipeline_three_stages(void)
+{
+    char line[] = "cat file | sort | uniq";
+    pipeline_t pl;
+
+    TEST_ASSERT_EQUAL_INT(0, parse_pipeline(line, &pl));
+    TEST_ASSERT_EQUAL_INT(3, pl.num_stages);
+    TEST_ASSERT_EQUAL_STRING("cat", pl.stages[0].argv[0]);
+    TEST_ASSERT_EQUAL_STRING("sort", pl.stages[1].argv[0]);
+    TEST_ASSERT_EQUAL_STRING("uniq", pl.stages[2].argv[0]);
+}
+
+void test_redirect_output(void)
+{
+    char line[] = "echo hello > out.txt";
+    pipeline_t pl;
+
+    TEST_ASSERT_EQUAL_INT(0, parse_pipeline(line, &pl));
+    TEST_ASSERT_EQUAL_INT(1, pl.num_stages);
+    TEST_ASSERT_EQUAL_INT(2, pl.stages[0].argc);
+    TEST_ASSERT_EQUAL_STRING("echo", pl.stages[0].argv[0]);
+    TEST_ASSERT_EQUAL_STRING("hello", pl.stages[0].argv[1]);
+    TEST_ASSERT_EQUAL_STRING("out.txt", pl.stages[0].redir_out);
+    TEST_ASSERT_EQUAL_INT(0, pl.stages[0].append);
+}
+
+void test_redirect_append(void)
+{
+    char line[] = "echo hello >> log.txt";
+    pipeline_t pl;
+
+    TEST_ASSERT_EQUAL_INT(0, parse_pipeline(line, &pl));
+    TEST_ASSERT_EQUAL_INT(1, pl.num_stages);
+    TEST_ASSERT_EQUAL_STRING("log.txt", pl.stages[0].redir_out);
+    TEST_ASSERT_EQUAL_INT(1, pl.stages[0].append);
+}
+
+void test_redirect_input(void)
+{
+    char line[] = "sort < data.txt";
+    pipeline_t pl;
+
+    TEST_ASSERT_EQUAL_INT(0, parse_pipeline(line, &pl));
+    TEST_ASSERT_EQUAL_INT(1, pl.num_stages);
+    TEST_ASSERT_EQUAL_INT(1, pl.stages[0].argc);
+    TEST_ASSERT_EQUAL_STRING("sort", pl.stages[0].argv[0]);
+    TEST_ASSERT_EQUAL_STRING("data.txt", pl.stages[0].redir_in);
+}
+
+void test_redirect_both(void)
+{
+    char line[] = "sort < in.txt > out.txt";
+    pipeline_t pl;
+
+    TEST_ASSERT_EQUAL_INT(0, parse_pipeline(line, &pl));
+    TEST_ASSERT_EQUAL_INT(1, pl.num_stages);
+    TEST_ASSERT_EQUAL_STRING("sort", pl.stages[0].argv[0]);
+    TEST_ASSERT_EQUAL_STRING("in.txt", pl.stages[0].redir_in);
+    TEST_ASSERT_EQUAL_STRING("out.txt", pl.stages[0].redir_out);
+}
+
+void test_empty_pipe_stage_error(void)
+{
+    char line[] = "ls | | grep foo";
+    pipeline_t pl;
+
+    TEST_ASSERT_EQUAL_INT(-1, parse_pipeline(line, &pl));
+}
+
+void test_redirect_missing_filename(void)
+{
+    char line[] = "echo hello >";
+    pipeline_t pl;
+
+    TEST_ASSERT_EQUAL_INT(-1, parse_pipeline(line, &pl));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -151,5 +254,14 @@ int main(void)
     RUN_TEST(test_empty_quotes);
     RUN_TEST(test_multiple_spaces_between_args);
     RUN_TEST(test_tabs_as_separators);
+    RUN_TEST(test_pipeline_single_command);
+    RUN_TEST(test_pipeline_two_stages);
+    RUN_TEST(test_pipeline_three_stages);
+    RUN_TEST(test_redirect_output);
+    RUN_TEST(test_redirect_append);
+    RUN_TEST(test_redirect_input);
+    RUN_TEST(test_redirect_both);
+    RUN_TEST(test_empty_pipe_stage_error);
+    RUN_TEST(test_redirect_missing_filename);
     return UNITY_END();
 }
