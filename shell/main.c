@@ -6,6 +6,7 @@
 #include <signal.h>
 #include <errno.h>
 #include "builtins.h"
+#include "parser.h"
 
 #define AXON_INPUT_MAX 4096
 #define PROMPT_MAX 1024
@@ -76,8 +77,21 @@ int main(void)
             continue;
         }
 
-        /* TODO: parse and execute external commands */
-        fprintf(stdout, "[debug] you typed: %s\n", line);
+        command_t cmd;
+        if (parse_command(line, &cmd) != 0) {
+            continue;
+        }
+
+        if (cmd.argc == 0) {
+            continue;
+        }
+
+        /* TODO: execute external commands */
+        fprintf(stdout, "[debug] parsed %d args:", cmd.argc);
+        for (int i = 0; i < cmd.argc; i++) {
+            fprintf(stdout, " [%s]", cmd.argv[i]);
+        }
+        fprintf(stdout, "\n");
     }
 
     fprintf(stderr, "\n");
