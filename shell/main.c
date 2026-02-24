@@ -7,6 +7,7 @@
 #include <errno.h>
 #include "builtins.h"
 #include "parser.h"
+#include "executor.h"
 
 #define AXON_INPUT_MAX 4096
 #define PROMPT_MAX 1024
@@ -86,12 +87,15 @@ int main(void)
             continue;
         }
 
-        /* TODO: execute external commands */
-        fprintf(stdout, "[debug] parsed %d args:", cmd.argc);
-        for (int i = 0; i < cmd.argc; i++) {
-            fprintf(stdout, " [%s]", cmd.argv[i]);
+        cmd_result_t result;
+        if (execute_command(&cmd, &result) != 0) {
+            continue;
         }
-        fprintf(stdout, "\n");
+
+        if (result.exit_code != 0) {
+            fprintf(stderr, "\033[1;31m[exit %d | %.1fms]\033[0m\n",
+                    result.exit_code, result.elapsed_ms);
+        }
     }
 
     fprintf(stderr, "\n");

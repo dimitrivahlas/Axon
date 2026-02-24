@@ -1,0 +1,19 @@
+#ifndef AXON_EXECUTOR_H
+#define AXON_EXECUTOR_H
+
+#include "parser.h"
+
+typedef struct {
+    int exit_code;
+    double elapsed_ms;
+} cmd_result_t;
+
+/*
+ * Execute a parsed command via fork/exec.
+ * Waits for the child to finish and fills result with
+ * the exit code and wall clock time in milliseconds.
+ * Returns 0 on success, -1 on fork/exec failure.
+ */
+int execute_command(command_t *cmd, cmd_result_t *result);
+
+#endif
