@@ -16,4 +16,12 @@ typedef struct {
  */
 int execute_command(command_t *cmd, cmd_result_t *result);
 
+/*
+ * Execute a full pipeline (one or more stages connected by pipes).
+ * Handles I/O redirection (<, >, >>) per stage.
+ * Result reflects the last stage's exit code and total wall time.
+ * Returns 0 on success, -1 on error.
+ */
+int execute_pipeline(pipeline_t *pl, cmd_result_t *result);
+
 #endif
