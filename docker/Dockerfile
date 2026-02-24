@@ -12,4 +12,6 @@ WORKDIR /axon
 
 COPY . .
 
-CMD ["make", "run"]
+RUN make build
+
+CMD ["./axon"]

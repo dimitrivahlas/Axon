@@ -1,0 +1,4 @@
+axon
+shell/*.o
+.git
+.github
