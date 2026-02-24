@@ -50,10 +50,40 @@ static int wait_for_child(pid_t pid)
     return -1;
 }
 
+static void read_and_tee_stderr(int fd, char *capture, size_t cap_max)
+{
+    size_t pos = 0;
+    char buf[1024];
+    ssize_t n;
+
+    while ((n = read(fd, buf, sizeof(buf))) > 0) {
+        /* Write to real stderr so the user sees it */
+        write(STDERR_FILENO, buf, (size_t)n);
+
+        /* Capture the tail into the buffer */
+        size_t to_copy = (size_t)n;
+        if (pos + to_copy >= cap_max - 1)
+            to_copy = cap_max - 1 - pos;
+        if (to_copy > 0) {
+            memcpy(capture + pos, buf, to_copy);
+            pos += to_copy;
+        }
+    }
+    capture[pos] = '\0';
+}
+
 int execute_command(command_t *cmd, cmd_result_t *result)
 {
     result->exit_code = 0;
     result->elapsed_ms = 0.0;
+    result->stderr_capture[0] = '\0';
+
+    /* Create a pipe to capture child's stderr */
+    int err_pipe[2];
+    if (pipe(err_pipe) < 0) {
+        fprintf(stderr, "axon: pipe: %s\n", strerror(errno));
+        return -1;
+    }
 
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);
@@ -62,19 +92,32 @@ int execute_command(command_t *cmd, cmd_result_t *result)
 
     if (pid < 0) {
         fprintf(stderr, "axon: fork: %s\n", strerror(errno));
+        close(err_pipe[0]);
+        close(err_pipe[1]);
         return -1;
     }
 
     if (pid == 0) {
+        /* Child: redirect stderr to pipe write end */
+        close(err_pipe[0]);
+        dup2(err_pipe[1], STDERR_FILENO);
+        close(err_pipe[1]);
+
         setup_redirects(cmd);
         execvp(cmd->argv[0], cmd->argv);
         fprintf(stderr, "axon: %s: %s\n", cmd->argv[0], strerror(errno));
         _exit(127);
     }
 
-    clock_gettime(CLOCK_MONOTONIC, &end);
+    /* Parent: read child's stderr from pipe, tee to terminal + capture */
+    close(err_pipe[1]);
+    read_and_tee_stderr(err_pipe[0], result->stderr_capture, AXON_CAPTURE_MAX);
+    close(err_pipe[0]);
 
     int code = wait_for_child(pid);
+
+    clock_gettime(CLOCK_MONOTONIC, &end);
+
     if (code < 0)
         return -1;
 

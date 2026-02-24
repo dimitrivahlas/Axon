@@ -10,6 +10,7 @@ typedef struct {
     int exit_code;
     double elapsed_ms;
     char cwd[1024];
+    char stderr_output[4096];
 } history_entry_t;
 
 typedef struct {
