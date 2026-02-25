@@ -368,6 +368,33 @@ void test_chain_respects_quotes(void)
     TEST_ASSERT_NOT_NULL(strstr(chain.entries[0].segment, "'&&'"));
 }
 
+/* --- Pipe-in-quotes tests --- */
+
+void test_pipeline_pipe_in_double_quotes(void)
+{
+    char line[] = "echo \"hello|world\"";
+    pipeline_t pl;
+
+    TEST_ASSERT_EQUAL_INT(0, parse_pipeline(line, &pl));
+    TEST_ASSERT_EQUAL_INT(1, pl.num_stages);
+    TEST_ASSERT_EQUAL_INT(2, pl.stages[0].argc);
+    TEST_ASSERT_EQUAL_STRING("echo", pl.stages[0].argv[0]);
+    TEST_ASSERT_EQUAL_STRING("hello|world", pl.stages[0].argv[1]);
+}
+
+void test_pipeline_pipe_in_single_quotes(void)
+{
+    char line[] = "echo 'a|b' | grep a";
+    pipeline_t pl;
+
+    TEST_ASSERT_EQUAL_INT(0, parse_pipeline(line, &pl));
+    TEST_ASSERT_EQUAL_INT(2, pl.num_stages);
+    TEST_ASSERT_EQUAL_STRING("echo", pl.stages[0].argv[0]);
+    TEST_ASSERT_EQUAL_STRING("a|b", pl.stages[0].argv[1]);
+    TEST_ASSERT_EQUAL_STRING("grep", pl.stages[1].argv[0]);
+    TEST_ASSERT_EQUAL_STRING("a", pl.stages[1].argv[1]);
+}
+
 /* --- Tilde expansion tests --- */
 
 void test_expand_tilde(void)
@@ -431,6 +458,8 @@ int main(void)
     RUN_TEST(test_chain_semicolon);
     RUN_TEST(test_chain_mixed);
     RUN_TEST(test_chain_respects_quotes);
+    RUN_TEST(test_pipeline_pipe_in_double_quotes);
+    RUN_TEST(test_pipeline_pipe_in_single_quotes);
     RUN_TEST(test_expand_tilde);
     RUN_TEST(test_expand_tilde_with_path);
     RUN_TEST(test_expand_tilde_in_single_quotes);

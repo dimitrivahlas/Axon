@@ -111,6 +111,23 @@ static int extract_redirects(command_t *cmd)
     return 0;
 }
 
+/* Find the next unquoted pipe character, skipping single/double quoted regions */
+static char *find_unquoted_pipe(char *s)
+{
+    int in_single = 0;
+    int in_double = 0;
+
+    for (; *s != '\0'; s++) {
+        if (*s == '\'' && !in_double)
+            in_single = !in_single;
+        else if (*s == '"' && !in_single)
+            in_double = !in_double;
+        else if (*s == '|' && !in_single && !in_double)
+            return s;
+    }
+    return NULL;
+}
+
 int parse_pipeline(char *line, pipeline_t *pl)
 {
     pl->num_stages = 0;
@@ -119,7 +136,7 @@ int parse_pipeline(char *line, pipeline_t *pl)
     char *pipe_pos;
 
     while (segment != NULL) {
-        pipe_pos = strchr(segment, '|');
+        pipe_pos = find_unquoted_pipe(segment);
         if (pipe_pos != NULL) {
             *pipe_pos = '\0';
         }
