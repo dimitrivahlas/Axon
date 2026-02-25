@@ -298,6 +298,76 @@ void test_expand_lone_dollar(void)
     TEST_ASSERT_EQUAL_STRING("echo $ end", out);
 }
 
+/* --- Chain tests --- */
+
+void test_chain_single_command(void)
+{
+    char line[] = "ls -la";
+    chain_t chain;
+
+    TEST_ASSERT_EQUAL_INT(0, parse_chain(line, &chain));
+    TEST_ASSERT_EQUAL_INT(1, chain.count);
+    TEST_ASSERT_EQUAL_INT(CHAIN_NONE, chain.entries[0].op);
+}
+
+void test_chain_and(void)
+{
+    char line[] = "echo hello && echo world";
+    chain_t chain;
+
+    TEST_ASSERT_EQUAL_INT(0, parse_chain(line, &chain));
+    TEST_ASSERT_EQUAL_INT(2, chain.count);
+    TEST_ASSERT_EQUAL_INT(CHAIN_NONE, chain.entries[0].op);
+    TEST_ASSERT_EQUAL_INT(CHAIN_AND, chain.entries[1].op);
+}
+
+void test_chain_or(void)
+{
+    char line[] = "false || echo fallback";
+    chain_t chain;
+
+    TEST_ASSERT_EQUAL_INT(0, parse_chain(line, &chain));
+    TEST_ASSERT_EQUAL_INT(2, chain.count);
+    TEST_ASSERT_EQUAL_INT(CHAIN_NONE, chain.entries[0].op);
+    TEST_ASSERT_EQUAL_INT(CHAIN_OR, chain.entries[1].op);
+}
+
+void test_chain_semicolon(void)
+{
+    char line[] = "echo a; echo b; echo c";
+    chain_t chain;
+
+    TEST_ASSERT_EQUAL_INT(0, parse_chain(line, &chain));
+    TEST_ASSERT_EQUAL_INT(3, chain.count);
+    TEST_ASSERT_EQUAL_INT(CHAIN_NONE, chain.entries[0].op);
+    TEST_ASSERT_EQUAL_INT(CHAIN_SEMI, chain.entries[1].op);
+    TEST_ASSERT_EQUAL_INT(CHAIN_SEMI, chain.entries[2].op);
+}
+
+void test_chain_mixed(void)
+{
+    char line[] = "echo a && echo b || echo c; echo d";
+    chain_t chain;
+
+    TEST_ASSERT_EQUAL_INT(0, parse_chain(line, &chain));
+    TEST_ASSERT_EQUAL_INT(4, chain.count);
+    TEST_ASSERT_EQUAL_INT(CHAIN_NONE, chain.entries[0].op);
+    TEST_ASSERT_EQUAL_INT(CHAIN_AND, chain.entries[1].op);
+    TEST_ASSERT_EQUAL_INT(CHAIN_OR, chain.entries[2].op);
+    TEST_ASSERT_EQUAL_INT(CHAIN_SEMI, chain.entries[3].op);
+}
+
+void test_chain_respects_quotes(void)
+{
+    char line[] = "echo '&&' && echo done";
+    chain_t chain;
+
+    TEST_ASSERT_EQUAL_INT(0, parse_chain(line, &chain));
+    TEST_ASSERT_EQUAL_INT(2, chain.count);
+    /* First segment should contain the quoted && literally */
+    TEST_ASSERT_NOT_NULL(strstr(chain.entries[0].segment, "'&&'"));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -329,5 +399,11 @@ int main(void)
     RUN_TEST(test_expand_undefined_var);
     RUN_TEST(test_expand_no_vars);
     RUN_TEST(test_expand_lone_dollar);
+    RUN_TEST(test_chain_single_command);
+    RUN_TEST(test_chain_and);
+    RUN_TEST(test_chain_or);
+    RUN_TEST(test_chain_semicolon);
+    RUN_TEST(test_chain_mixed);
+    RUN_TEST(test_chain_respects_quotes);
     return UNITY_END();
 }
