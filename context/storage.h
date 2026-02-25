@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include <sqlite3.h>
 
 struct CommandRow {
     int id;
@@ -38,10 +39,10 @@ public:
     int end_session(const std::string &session_id, int64_t ended_at);
     int64_t get_session_start(const std::string &session_id);
 
-    bool is_open() const { return false; }
+    bool is_open() const { return db_ != nullptr; }
 
 private:
-    /* SQLite handle will be added in Step 2 */
+    sqlite3 *db_;
 };
 
 #endif
