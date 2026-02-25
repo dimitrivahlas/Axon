@@ -1,6 +1,7 @@
 #ifndef AXON_STORAGE_H
 #define AXON_STORAGE_H
 
+#include <cstdint>
 #include <string>
 #include <vector>
 
