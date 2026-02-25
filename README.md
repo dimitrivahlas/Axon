@@ -35,15 +35,21 @@ No frameworks. No runtimes. Just C, the kernel, and one API call when you ask fo
 
 ## Current Status
 
-Axon is in active development. Milestone 1 (Smart Shell Core) is in progress:
+Axon is in active development. Milestone 1 (Smart Shell Core) is complete:
 
 - [x] Interactive REPL with colored prompt
 - [x] Signal handling (Ctrl+C, Ctrl+D)
-- [x] Builtins (`cd`, `exit`)
-- [x] Command parser (tokenization, quote handling)
-- [ ] Command execution (fork/exec, pipelines, redirects)
-- [ ] Output and metadata capture (exit code, timing, stderr/stdout)
-- [ ] AI integration (`?` and `!!` commands)
+- [x] Builtins (`cd`, `exit`, `help`)
+- [x] Command parser (tokenization, single/double quote handling)
+- [x] Pipes (`cmd1 | cmd2 | cmd3`)
+- [x] I/O redirection (`>`, `>>`, `<`)
+- [x] Environment variable expansion (`$VAR`, `${VAR}`, `$?`, `~`)
+- [x] Command chaining (`&&`, `||`, `;`)
+- [x] Command execution (fork/exec, pipelines)
+- [x] Output and metadata capture (exit code, timing, stderr)
+- [x] AI integration (`?` and `!!` commands via Claude API)
+- [x] Unit tests (42 tests, Unity framework)
+- [x] CI pipeline (GitHub Actions)
 
 ## Quick Start
 
@@ -88,11 +94,15 @@ Note: Axon targets Linux. macOS builds work for development but the full feature
 axon/
 ├── shell/
 │   ├── main.c          # Entry point, REPL loop, signal handling
-│   ├── parser.c/.h     # Command tokenization, quote handling
-│   ├── builtins.c/.h   # cd, exit
-│   ├── executor.c/.h   # (coming) fork/exec, pipelines, redirects
-│   ├── capture.c/.h    # (coming) stdout/stderr capture, metadata
-│   └── ai.c/.h         # (coming) Claude API integration
+│   ├── parser.c/.h     # Tokenization, quotes, pipes, redirects, env vars, chaining
+│   ├── builtins.c/.h   # cd, exit, help
+│   ├── executor.c/.h   # Fork/exec, pipelines, I/O redirection, stderr capture
+│   ├── history.c/.h    # Command history ring buffer for AI context
+│   └── ai.c/.h         # Claude API integration via libcurl
+├── tests/
+│   ├── test_parser.c   # Parser unit tests
+│   ├── test_executor.c # Executor unit tests
+│   └── unity.*         # Unity test framework
 ├── docker/
 │   └── Dockerfile      # Alpine Linux dev container
 ├── .github/
