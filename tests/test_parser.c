@@ -368,6 +368,32 @@ void test_chain_respects_quotes(void)
     TEST_ASSERT_NOT_NULL(strstr(chain.entries[0].segment, "'&&'"));
 }
 
+/* --- Tilde expansion tests --- */
+
+void test_expand_tilde(void)
+{
+    setenv("HOME", "/root", 1);
+    char out[4096];
+    TEST_ASSERT_EQUAL_INT(0, expand_env("cd ~", out, sizeof(out), 0));
+    TEST_ASSERT_EQUAL_STRING("cd /root", out);
+}
+
+void test_expand_tilde_with_path(void)
+{
+    setenv("HOME", "/root", 1);
+    char out[4096];
+    TEST_ASSERT_EQUAL_INT(0, expand_env("ls ~/projects", out, sizeof(out), 0));
+    TEST_ASSERT_EQUAL_STRING("ls /root/projects", out);
+}
+
+void test_expand_tilde_in_single_quotes(void)
+{
+    setenv("HOME", "/root", 1);
+    char out[4096];
+    TEST_ASSERT_EQUAL_INT(0, expand_env("echo '~'", out, sizeof(out), 0));
+    TEST_ASSERT_EQUAL_STRING("echo '~'", out);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -405,5 +431,8 @@ int main(void)
     RUN_TEST(test_chain_semicolon);
     RUN_TEST(test_chain_mixed);
     RUN_TEST(test_chain_respects_quotes);
+    RUN_TEST(test_expand_tilde);
+    RUN_TEST(test_expand_tilde_with_path);
+    RUN_TEST(test_expand_tilde_in_single_quotes);
     return UNITY_END();
 }

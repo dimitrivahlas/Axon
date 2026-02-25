@@ -165,6 +165,20 @@ int expand_env(const char *line, char *out, size_t out_max, int last_exit_code)
         } else if (*p == '\'' && in_single_quote) {
             in_single_quote = 0;
             out[pos++] = *p++;
+        } else if (*p == '~' && !in_single_quote &&
+                   (p == line || *(p - 1) == ' ' || *(p - 1) == '\t' ||
+                    *(p - 1) == '=' || *(p - 1) == ':') &&
+                   (*(p + 1) == '/' || *(p + 1) == '\0' || *(p + 1) == ' ' ||
+                    *(p + 1) == '\t')) {
+            const char *home = getenv("HOME");
+            if (home != NULL) {
+                size_t hlen = strlen(home);
+                if (pos + hlen < out_max - 1) {
+                    memcpy(out + pos, home, hlen);
+                    pos += hlen;
+                }
+            }
+            p++;
         } else if (*p == '$' && !in_single_quote) {
             p++;
             const char *val = NULL;
