@@ -15,6 +15,6 @@ WORKDIR /axon
 
 COPY . .
 
-RUN make build
+RUN make clean && make build
 
 CMD ["./axon"]
