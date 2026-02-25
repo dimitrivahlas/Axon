@@ -421,6 +421,82 @@ void test_expand_tilde_in_single_quotes(void)
     TEST_ASSERT_EQUAL_STRING("echo '~'", out);
 }
 
+/* --- Edge case tests --- */
+
+void test_max_args_boundary(void)
+{
+    /* Build a line with exactly AXON_MAX_ARGS arguments */
+    char line[8192];
+    int pos = 0;
+    for (int i = 0; i < AXON_MAX_ARGS; i++) {
+        if (i > 0) line[pos++] = ' ';
+        line[pos++] = 'a' + (char)(i % 26);
+    }
+    line[pos] = '\0';
+
+    command_t cmd;
+    TEST_ASSERT_EQUAL_INT(0, parse_command(line, &cmd));
+    TEST_ASSERT_EQUAL_INT(AXON_MAX_ARGS, cmd.argc);
+    TEST_ASSERT_NULL(cmd.argv[AXON_MAX_ARGS]);
+}
+
+void test_redirect_in_pipeline_stage(void)
+{
+    /* Redirect output on last stage of a pipeline */
+    char line[] = "cat file.txt | sort > sorted.txt";
+    pipeline_t pl;
+
+    TEST_ASSERT_EQUAL_INT(0, parse_pipeline(line, &pl));
+    TEST_ASSERT_EQUAL_INT(2, pl.num_stages);
+    TEST_ASSERT_EQUAL_STRING("cat", pl.stages[0].argv[0]);
+    TEST_ASSERT_EQUAL_STRING("file.txt", pl.stages[0].argv[1]);
+    TEST_ASSERT_NULL(pl.stages[0].redir_out);
+    TEST_ASSERT_EQUAL_STRING("sort", pl.stages[1].argv[0]);
+    TEST_ASSERT_EQUAL_STRING("sorted.txt", pl.stages[1].redir_out);
+}
+
+void test_redirect_input_in_pipeline(void)
+{
+    /* Redirect input on first stage of a pipeline */
+    char line[] = "sort < data.txt | uniq";
+    pipeline_t pl;
+
+    TEST_ASSERT_EQUAL_INT(0, parse_pipeline(line, &pl));
+    TEST_ASSERT_EQUAL_INT(2, pl.num_stages);
+    TEST_ASSERT_EQUAL_STRING("data.txt", pl.stages[0].redir_in);
+    TEST_ASSERT_EQUAL_STRING("uniq", pl.stages[1].argv[0]);
+}
+
+void test_chain_empty_segment(void)
+{
+    /* Trailing semicolon — last segment is empty, should be harmless */
+    char line[] = "echo hello;";
+    chain_t chain;
+
+    TEST_ASSERT_EQUAL_INT(0, parse_chain(line, &chain));
+    TEST_ASSERT_EQUAL_INT(2, chain.count);
+}
+
+void test_expand_multiple_vars(void)
+{
+    setenv("AXON_A", "foo", 1);
+    setenv("AXON_B", "bar", 1);
+    char out[4096];
+    TEST_ASSERT_EQUAL_INT(0, expand_env("$AXON_A $AXON_B", out, sizeof(out), 0));
+    TEST_ASSERT_EQUAL_STRING("foo bar", out);
+    unsetenv("AXON_A");
+    unsetenv("AXON_B");
+}
+
+void test_expand_var_in_double_quotes(void)
+{
+    setenv("AXON_TEST_VAR", "hello", 1);
+    char out[4096];
+    TEST_ASSERT_EQUAL_INT(0, expand_env("echo \"$AXON_TEST_VAR\"", out, sizeof(out), 0));
+    TEST_ASSERT_EQUAL_STRING("echo \"hello\"", out);
+    unsetenv("AXON_TEST_VAR");
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -463,5 +539,11 @@ int main(void)
     RUN_TEST(test_expand_tilde);
     RUN_TEST(test_expand_tilde_with_path);
     RUN_TEST(test_expand_tilde_in_single_quotes);
+    RUN_TEST(test_max_args_boundary);
+    RUN_TEST(test_redirect_in_pipeline_stage);
+    RUN_TEST(test_redirect_input_in_pipeline);
+    RUN_TEST(test_chain_empty_segment);
+    RUN_TEST(test_expand_multiple_vars);
+    RUN_TEST(test_expand_var_in_double_quotes);
     return UNITY_END();
 }
