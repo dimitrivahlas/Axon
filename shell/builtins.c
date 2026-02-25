@@ -20,9 +20,10 @@ static int builtin_cd(char *arg)
 
     if (chdir(target) != 0) {
         fprintf(stderr, "axon: cd: %s: %s\n", target, strerror(errno));
+        return 1; /* failure */
     }
 
-    return 1;
+    return 0; /* success */
 }
 
 static int builtin_exit(void)
@@ -52,7 +53,7 @@ static int builtin_help(void)
         "  Env vars:        $VAR, ${VAR}, $?, ~\n"
         "  Quotes:          'literal', \"grouped\"\n"
     );
-    return 1;
+    return 0;
 }
 
 int builtin_execute(char *line)
@@ -79,5 +80,5 @@ int builtin_execute(char *line)
         return builtin_help();
     }
 
-    return 0; /* Not a builtin */
+    return -1; /* Not a builtin */
 }

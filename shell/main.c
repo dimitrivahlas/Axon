@@ -132,8 +132,9 @@ int main(void)
             if (*seg == '\0')
                 continue;
 
-            if (builtin_execute(seg)) {
-                last_exit_code = 0;
+            int builtin_ret = builtin_execute(seg);
+            if (builtin_ret >= 0) {
+                last_exit_code = builtin_ret;
                 continue;
             }
 
