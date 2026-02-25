@@ -24,7 +24,7 @@ Persistent project-aware memory. Tracks files, recent changes, errors, command h
 - **Shell and sandbox**: C (C11), Linux syscalls, libseccomp
 - **Context engine**: C++
 - **AI**: Anthropic Claude API (primary), Ollama for local fallback
-- **Dev environment**: Docker on macOS (Linux container — Ubuntu 22.04 LTS)
+- **Dev environment**: Docker on macOS (Linux container — Alpine 3.19)
 - **Build system**: Makefile
 - **Testing**: Unity (C unit tests)
 
@@ -48,18 +48,29 @@ The developer has a systems programming background in C on Linux. Has built a sh
 - A cloud product (yet)
 - Anything that requires a GUI
 
-## Repository Structure (Target)
+## Repository Structure
 
 ```
-/
-├── shell/          # C source for the smart shell
-├── sandbox/        # C source for the namespace/seccomp executor (separate binary)
-├── context/        # C++ context engine
-├── ai/             # AI integration layer (API calls, prompt templates)
-├── tests/          # Unit and integration tests
-├── docker/         # Dockerfile and container config
-├── docs/           # Notes, design decisions, ADRs
-└── Makefile
+axon/
+├── shell/
+│   ├── main.c          # Entry point, REPL loop, signal handling
+│   ├── parser.c/.h     # Tokenization, quotes, pipes, redirects, env vars, chaining
+│   ├── builtins.c/.h   # cd, exit, help
+│   ├── executor.c/.h   # Fork/exec, pipelines, I/O redirection, stderr capture
+│   ├── history.c/.h    # Command history ring buffer for AI context
+│   └── ai.c/.h         # Claude API integration via libcurl
+├── tests/
+│   ├── test_parser.c   # 37 parser tests
+│   ├── test_executor.c # 5 executor tests
+│   └── unity.*         # Unity test framework
+├── docker/
+│   └── Dockerfile      # Alpine Linux dev container
+├── .github/
+│   └── workflows/
+│       └── ci.yml      # Build + test on every push/PR
+├── Makefile
+├── CLAUDE.md
+└── README.md
 ```
 
 ## AI Interaction Model
@@ -71,13 +82,23 @@ AI assistance is opt-in only:
 
 ## Current Status
 
-Project is in initial scaffolding phase. Building Milestone 1 — Smart Shell Core.
+Milestone 1 (Smart Shell Core) is complete. The shell is fully functional with:
+- Interactive REPL with colored prompt and signal handling
+- Command parsing with pipes, redirects, env vars, quotes, chaining
+- Fork/exec execution with pipelines, I/O redirection, stderr capture
+- AI integration via Claude API (`?` and `!!` commands)
+- Command history ring buffer feeding context to AI
+- 42 unit tests (Unity framework) and GitHub Actions CI
 
-## First Milestone
+Next: Milestone 2 — Context Engine (C++, persistent memory across sessions).
 
-A working shell in C that:
-1. Accepts and executes commands (basic REPL)
-2. Captures exit code, timing, and command text for every execution
-3. Opt-in AI: user types `?` or `!!` to get Claude's help with context
+## Milestones
 
-This is the proof of concept. Everything else builds on top of it.
+**Milestone 1 — Smart Shell Core (COMPLETE)**
+A working shell in C that accepts and executes commands, captures execution metadata (exit code, timing, stderr), and provides opt-in AI assistance via Claude API.
+
+**Milestone 2 — Context Engine (PLANNED)**
+Persistent project-aware memory in C++. Tracks files, errors, command history, and patterns across sessions.
+
+**Milestone 3 — Sandbox Executor (PLANNED)**
+Secure execution of AI-generated commands using Linux namespaces and seccomp filters.
