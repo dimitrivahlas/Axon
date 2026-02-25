@@ -223,3 +223,70 @@ int expand_env(const char *line, char *out, size_t out_max, int last_exit_code)
     out[pos] = '\0';
     return 0;
 }
+
+int parse_chain(char *line, chain_t *chain)
+{
+    chain->count = 0;
+
+    char *p = line;
+    char *seg_start = line;
+    int in_single = 0;
+    int in_double = 0;
+
+    while (*p != '\0') {
+        if (*p == '\'' && !in_double) {
+            in_single = !in_single;
+            p++;
+        } else if (*p == '"' && !in_single) {
+            in_double = !in_double;
+            p++;
+        } else if (!in_single && !in_double) {
+            chain_op_t op = CHAIN_NONE;
+
+            if (*p == '&' && *(p + 1) == '&') {
+                op = CHAIN_AND;
+                *p = '\0';
+                p += 2;
+            } else if (*p == '|' && *(p + 1) == '|') {
+                op = CHAIN_OR;
+                *p = '\0';
+                p += 2;
+            } else if (*p == ';') {
+                op = CHAIN_SEMI;
+                *p = '\0';
+                p++;
+            } else {
+                p++;
+                continue;
+            }
+
+            if (chain->count >= AXON_MAX_CHAIN) {
+                fprintf(stderr, "axon: too many chained commands\n");
+                return -1;
+            }
+
+            chain->entries[chain->count].segment = seg_start;
+            chain->entries[chain->count].op = (chain->count == 0) ? CHAIN_NONE : chain->entries[chain->count].op;
+            chain->count++;
+
+            /* Next entry's operator */
+            if (chain->count < AXON_MAX_CHAIN) {
+                chain->entries[chain->count].op = op;
+            }
+
+            seg_start = p;
+        } else {
+            p++;
+        }
+    }
+
+    /* Last segment */
+    if (chain->count < AXON_MAX_CHAIN) {
+        chain->entries[chain->count].segment = seg_start;
+        if (chain->count == 0)
+            chain->entries[chain->count].op = CHAIN_NONE;
+        chain->count++;
+    }
+
+    return 0;
+}

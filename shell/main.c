@@ -110,39 +110,64 @@ int main(void)
             continue;
         }
 
-        if (builtin_execute(expanded)) {
+        /* Split on &&, ||, ; */
+        chain_t chain;
+        if (parse_chain(expanded, &chain) != 0) {
             continue;
         }
 
-        /* Save a copy of the expanded line before parsing mutates it */
-        char line_copy[AXON_INPUT_MAX];
-        strncpy(line_copy, expanded, sizeof(line_copy) - 1);
-        line_copy[sizeof(line_copy) - 1] = '\0';
+        for (int ci = 0; ci < chain.count; ci++) {
+            char *seg = chain.entries[ci].segment;
+            chain_op_t op = chain.entries[ci].op;
 
-        pipeline_t pl;
-        if (parse_pipeline(expanded, &pl) != 0) {
-            continue;
-        }
+            /* Check chain operator conditions */
+            if (op == CHAIN_AND && last_exit_code != 0)
+                continue;
+            if (op == CHAIN_OR && last_exit_code == 0)
+                continue;
 
-        if (pl.num_stages == 0) {
-            continue;
-        }
+            /* Skip leading whitespace */
+            while (*seg == ' ' || *seg == '\t')
+                seg++;
+            if (*seg == '\0')
+                continue;
 
-        cmd_result_t result;
-        if (execute_pipeline(&pl, &result) != 0) {
-            continue;
-        }
+            if (builtin_execute(seg)) {
+                last_exit_code = 0;
+                continue;
+            }
 
-        /* Record in history */
-        char cwd[PROMPT_MAX];
-        if (getcwd(cwd, sizeof(cwd)) == NULL)
-            strncpy(cwd, "???", sizeof(cwd));
-        history_add(&hist, line_copy, &result, cwd);
-        last_exit_code = result.exit_code;
+            /* Save a copy before parsing mutates it */
+            char seg_copy[AXON_INPUT_MAX];
+            strncpy(seg_copy, seg, sizeof(seg_copy) - 1);
+            seg_copy[sizeof(seg_copy) - 1] = '\0';
 
-        if (result.exit_code != 0) {
-            fprintf(stderr, "\033[1;31m[exit %d | %.1fms]\033[0m\n",
-                    result.exit_code, result.elapsed_ms);
+            pipeline_t pl;
+            if (parse_pipeline(seg, &pl) != 0) {
+                last_exit_code = 1;
+                continue;
+            }
+
+            if (pl.num_stages == 0)
+                continue;
+
+            cmd_result_t result;
+            if (execute_pipeline(&pl, &result) != 0) {
+                last_exit_code = 1;
+                continue;
+            }
+
+            /* Record in history */
+            char cwd[PROMPT_MAX];
+            if (getcwd(cwd, sizeof(cwd)) == NULL)
+                strncpy(cwd, "???", sizeof(cwd));
+            history_add(&hist, seg_copy, &result, cwd);
+            last_exit_code = result.exit_code;
+
+            if (result.exit_code != 0) {
+                fprintf(stderr, "\033[1;31m[exit %d | %.1fms]\033[0m\n",
+                        result.exit_code, result.elapsed_ms);
+            }
         }
     }
 

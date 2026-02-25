@@ -42,4 +42,31 @@ int parse_pipeline(char *line, pipeline_t *pl);
  */
 int expand_env(const char *line, char *out, size_t out_max, int last_exit_code);
 
+#define AXON_MAX_CHAIN 32
+
+/* Operator between chained commands */
+typedef enum {
+    CHAIN_NONE,  /* first command, no preceding operator */
+    CHAIN_SEMI,  /* ; — always run */
+    CHAIN_AND,   /* && — run only if previous succeeded */
+    CHAIN_OR     /* || — run only if previous failed */
+} chain_op_t;
+
+typedef struct {
+    char *segment;   /* raw text for this pipeline segment */
+    chain_op_t op;   /* operator before this segment */
+} chain_entry_t;
+
+typedef struct {
+    chain_entry_t entries[AXON_MAX_CHAIN];
+    int count;
+} chain_t;
+
+/*
+ * Split a command line on &&, ||, and ; into chained segments.
+ * Respects quoted strings. Modifies the input string in place.
+ * Returns 0 on success, -1 on error.
+ */
+int parse_chain(char *line, chain_t *chain);
+
 #endif
