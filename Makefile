@@ -46,8 +46,11 @@ test_builtins: $(SRC_DIR)/builtins.o $(TEST_DIR)/test_builtins.c $(UNITY_SRC)
 test_storage: $(CTX_DIR)/storage.o $(TEST_DIR)/test_storage.cpp
 	$(CXX) $(CXXFLAGS) -o $(TEST_DIR)/$@ $(TEST_DIR)/test_storage.cpp $(CTX_DIR)/storage.o -lsqlite3
 
+test_context: $(CTX_OBJ) $(TEST_DIR)/test_context.c $(UNITY_SRC)
+	$(CC) $(CFLAGS) -o $(TEST_DIR)/$@ $(TEST_DIR)/test_context.c $(CTX_OBJ) $(UNITY_SRC) -lsqlite3 -lstdc++
+
 clean:
-	rm -f $(SRC_DIR)/*.o $(CTX_DIR)/*.o $(BIN) $(TEST_DIR)/test_parser $(TEST_DIR)/test_executor $(TEST_DIR)/test_builtins $(TEST_DIR)/test_storage
+	rm -f $(SRC_DIR)/*.o $(CTX_DIR)/*.o $(BIN) $(TEST_DIR)/test_parser $(TEST_DIR)/test_executor $(TEST_DIR)/test_builtins $(TEST_DIR)/test_storage $(TEST_DIR)/test_context
 
 docker:
 	docker build -t axon -f docker/Dockerfile .
@@ -55,7 +58,7 @@ docker:
 run: build
 	./$(BIN)
 
-test: test_parser test_executor test_builtins test_storage
+test: test_parser test_executor test_builtins test_storage test_context
 	@echo "=== Parser Tests ==="
 	@./$(TEST_DIR)/test_parser
 	@echo ""
@@ -67,3 +70,6 @@ test: test_parser test_executor test_builtins test_storage
 	@echo ""
 	@echo "=== Storage Tests ==="
 	@./$(TEST_DIR)/test_storage
+	@echo ""
+	@echo "=== Context Tests ==="
+	@./$(TEST_DIR)/test_context

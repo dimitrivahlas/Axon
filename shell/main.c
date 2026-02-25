@@ -10,6 +10,7 @@
 #include "executor.h"
 #include "history.h"
 #include "ai.h"
+#include "../context/context.h"
 
 #define AXON_INPUT_MAX 4096
 #define PROMPT_MAX 1024
@@ -69,6 +70,9 @@ int main(void)
     sa.sa_flags = 0;
     sigemptyset(&sa.sa_mask);
     sigaction(SIGINT, &sa, NULL);
+
+    /* Initialize context engine (persistent history via SQLite) */
+    context_init();
 
     history_t hist;
     history_init(&hist);
@@ -163,6 +167,8 @@ int main(void)
             if (getcwd(cwd, sizeof(cwd)) == NULL)
                 strncpy(cwd, "???", sizeof(cwd));
             history_add(&hist, seg_copy, &result, cwd);
+            context_add(seg_copy, result.exit_code, result.elapsed_ms,
+                        cwd, result.stderr_capture);
             last_exit_code = result.exit_code;
 
             if (result.exit_code != 0) {
@@ -172,6 +178,7 @@ int main(void)
         }
     }
 
+    context_shutdown();
     fprintf(stderr, "\n");
     return 0;
 }
