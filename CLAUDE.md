@@ -22,7 +22,7 @@ Persistent project-aware memory. Tracks files, recent changes, errors, command h
 ## Tech Stack
 
 - **Shell and sandbox**: C (C11), Linux syscalls, libseccomp
-- **Context engine**: C++
+- **Context engine**: C++ (C++17)
 - **AI**: Anthropic Claude API (primary), Ollama for local fallback
 - **Dev environment**: Docker on macOS (Linux container — Alpine 3.19)
 - **Build system**: Makefile
@@ -41,11 +41,36 @@ The developer has a systems programming background in C on Linux. Has built a sh
 ## Coding Principles
 
 - Prefer simplicity over abstraction. Do not over-engineer early.
-- C code should be C11 compliant, compile cleanly with `-Wall -Wextra -Werror`.
+- C code must be C11 compliant, compile cleanly with `-Wall -Wextra -Werror`.
+- C++ code must be C++17 compliant, compile cleanly with `-Wall -Wextra -Werror`.
+- In C++ code, prefer `std::string` over raw `char*` internally. Use `strdup()` at the C boundary when returning `char*` to C callers. Minimize use of exceptions.
 - Avoid external dependencies in the C layer unless absolutely necessary.
 - The sandbox must fail closed — if something is uncertain, deny it.
 - Context engine should be append-friendly and easy to inspect as plain text or JSON.
 - Every component should be independently testable.
+- Functions return 0 on success, -1 on failure. Pointer-returning functions return `NULL` on failure. Callers must always check return values — never silently swallow errors.
+
+## Security Rules
+
+These are non-negotiable. Every contributor (human or AI) must follow them.
+
+- **No unsanitized input in shell commands.** Never pass user or AI-generated strings directly to `system()`, `popen()`, or `snprintf` format strings without escaping or validation.
+- **Parameterized queries only.** All SQL must use `sqlite3_bind_*` — never string-concatenate values into SQL statements.
+- **JSON-escape all dynamic strings.** Any string embedded in JSON output must go through a proper escape function (e.g., `json_escape_str`) to prevent injection.
+- **API keys from environment variables only.** Keys are never hardcoded, logged, or written to files.
+- **Bound all buffers.** No unbounded `malloc` from untrusted input. Stderr capture, command output, and file reads must have size limits.
+- **Sandbox fails closed.** If a seccomp filter, namespace setup, or permission check is uncertain, deny the operation. Never default to permissive.
+
+## Testing
+
+Testing is mandatory, not optional. Code without tests does not ship.
+
+- **Every new module must have a corresponding test file** (e.g., `context/storage.cpp` -> `tests/test_storage.cpp`).
+- **Every new feature or function must include unit tests** that cover success cases, failure/error cases, and edge cases (NULL inputs, empty data, boundary values).
+- **All tests must pass before merging.** Run `make clean && make build && make test` and verify 0 failures.
+- **Tests must not depend on external state.** Tests that use the persistent database (`~/.axon/context.db`) must not assume an empty DB — previous test runs may have left data.
+- **Test framework**: Unity for C tests. C++ tests use a lightweight custom runner (see `tests/test_storage.cpp` for the pattern).
+- **CI runs all tests** on every push and PR via GitHub Actions.
 
 ## What We Are NOT Building
 
@@ -59,21 +84,29 @@ The developer has a systems programming background in C on Linux. Has built a sh
 ```
 axon/
 ├── shell/
-│   ├── main.c          # Entry point, REPL loop, signal handling
-│   ├── parser.c/.h     # Tokenization, quotes, pipes, redirects, env vars, chaining
-│   ├── builtins.c/.h   # cd, exit, help
-│   ├── executor.c/.h   # Fork/exec, pipelines, I/O redirection, stderr capture
-│   ├── history.c/.h    # Command history ring buffer for AI context
-│   └── ai.c/.h         # Claude API integration via libcurl
+│   ├── main.c            # Entry point, REPL loop, signal handling
+│   ├── parser.c/.h       # Tokenization, quotes, pipes, redirects, env vars, chaining
+│   ├── builtins.c/.h     # cd, exit, help
+│   ├── executor.c/.h     # Fork/exec, pipelines, I/O redirection, stderr capture
+│   ├── history.c/.h      # Command history ring buffer for AI context
+│   └── ai.c/.h           # Claude API integration via libcurl
+├── context/
+│   ├── context.cpp/.h    # Context engine public API (init, add, build JSON, shutdown)
+│   ├── storage.cpp/.h    # SQLite-backed persistent storage for commands and sessions
+│   └── git_context.cpp/.h # Git state gathering (branch, dirty, modified/staged files, commits)
 ├── tests/
-│   ├── test_parser.c   # 37 parser tests
-│   ├── test_executor.c # 5 executor tests
-│   └── unity.*         # Unity test framework
+│   ├── test_parser.c     # Parser tests (45)
+│   ├── test_executor.c   # Executor tests (5)
+│   ├── test_builtins.c   # Builtin tests (6)
+│   ├── test_storage.cpp  # Storage tests (9)
+│   ├── test_context.c    # Context engine tests (11)
+│   ├── test_git_context.cpp # Git context tests (4)
+│   └── unity.*           # Unity test framework
 ├── docker/
-│   └── Dockerfile      # Alpine Linux dev container
+│   └── Dockerfile        # Alpine Linux dev container
 ├── .github/
 │   └── workflows/
-│       └── ci.yml      # Build + test on every push/PR
+│       └── ci.yml        # Build + test on every push/PR
 ├── Makefile
 ├── CLAUDE.md
 └── README.md
@@ -88,23 +121,31 @@ AI assistance is opt-in only:
 
 ## Current Status
 
-Milestone 1 (Smart Shell Core) is complete. The shell is fully functional with:
+Milestone 1 (Smart Shell Core) is complete. Milestone 2 (Context Engine) is nearly complete.
+
+The shell is fully functional with:
 - Interactive REPL with colored prompt and signal handling
 - Command parsing with pipes, redirects, env vars, quotes, chaining
 - Fork/exec execution with pipelines, I/O redirection, stderr capture
 - AI integration via Claude API (`?` and `!!` commands)
 - Command history ring buffer feeding context to AI
-- 42 unit tests (Unity framework) and GitHub Actions CI
 
-Next: Milestone 2 — Context Engine (C++, persistent memory across sessions).
+The context engine is operational with:
+- SQLite-backed persistent storage for commands and sessions
+- Session tracking with unique IDs across shell invocations
+- Git state gathering (branch, dirty status, modified/staged files, recent commits)
+- Full JSON context builder (`context_build_ai_json`) wiring storage + git into a structured AI payload
+- 80 unit tests across 6 test suites, CI via GitHub Actions
+
+Next: Wire the context engine into the shell's AI commands, then Milestone 3 (Sandbox Executor).
 
 ## Milestones
 
 **Milestone 1 — Smart Shell Core (COMPLETE)**
 A working shell in C that accepts and executes commands, captures execution metadata (exit code, timing, stderr), and provides opt-in AI assistance via Claude API.
 
-**Milestone 2 — Context Engine (PLANNED)**
-Persistent project-aware memory in C++. Tracks files, errors, command history, and patterns across sessions.
+**Milestone 2 — Context Engine (IN PROGRESS)**
+Persistent project-aware memory in C++. Tracks files, errors, command history, and patterns across sessions. Storage, git context, session tracking, and JSON builder are complete. Remaining: integrate into shell AI commands.
 
 **Milestone 3 — Sandbox Executor (PLANNED)**
 Secure execution of AI-generated commands using Linux namespaces and seccomp filters.
