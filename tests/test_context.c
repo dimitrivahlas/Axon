@@ -74,13 +74,93 @@ void test_session_id_unique(void)
     context_shutdown();
 }
 
-void test_build_ai_json_stub(void)
+void test_build_ai_json_not_initialized(void)
+{
+    /* Should return NULL when context not initialized */
+    char *json = context_build_ai_json("/tmp", 0);
+    TEST_ASSERT_NULL(json);
+}
+
+void test_build_ai_json_empty(void)
 {
     TEST_ASSERT_EQUAL_INT(0, context_init());
+    char *json = context_build_ai_json("/tmp", 5);
+    TEST_ASSERT_NOT_NULL(json);
+
+    /* Should contain required keys */
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"session_id\""));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"recent_commands\""));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"error_summary\""));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"cwd\""));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"/tmp\""));
+
+    free(json);
+    context_shutdown();
+}
+
+void test_build_ai_json_with_commands(void)
+{
+    TEST_ASSERT_EQUAL_INT(0, context_init());
+    TEST_ASSERT_EQUAL_INT(0, context_add("make build", 0, 1200.5, "/home/user/project", ""));
+    TEST_ASSERT_EQUAL_INT(0, context_add("gcc main.c", 1, 350.0, "/home/user/project", "error: undefined ref"));
+
+    char *json = context_build_ai_json("/tmp", 10);
+    TEST_ASSERT_NOT_NULL(json);
+
+    /* Commands should appear in the JSON */
+    TEST_ASSERT_NOT_NULL(strstr(json, "make build"));
+    TEST_ASSERT_NOT_NULL(strstr(json, "gcc main.c"));
+    TEST_ASSERT_NOT_NULL(strstr(json, "error: undefined ref"));
+
+    /* Should have exit codes */
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"exit_code\": 0"));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"exit_code\": 1"));
+
+    /* error_summary should show at least 1 failure (from gcc command) */
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"recent_failures\":"));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"out_of_last\": 10"));
+
+    free(json);
+    context_shutdown();
+}
+
+void test_build_ai_json_includes_session_id(void)
+{
+    TEST_ASSERT_EQUAL_INT(0, context_init());
+    const char *sid = context_session_id();
+    TEST_ASSERT_NOT_NULL(sid);
+
     char *json = context_build_ai_json("/tmp", 0);
     TEST_ASSERT_NOT_NULL(json);
-    /* Still a stub, should return "{}" */
-    TEST_ASSERT_EQUAL_STRING("{}", json);
+
+    /* The session ID should appear in the JSON output */
+    TEST_ASSERT_NOT_NULL(strstr(json, sid));
+
+    free(json);
+    context_shutdown();
+}
+
+void test_build_ai_json_default_max_entries(void)
+{
+    TEST_ASSERT_EQUAL_INT(0, context_init());
+
+    /* Add 25 commands */
+    int i;
+    for (i = 0; i < 25; i++) {
+        char cmd[32];
+        snprintf(cmd, sizeof(cmd), "cmd_%d", i);
+        TEST_ASSERT_EQUAL_INT(0, context_add(cmd, 0, 1.0, "/tmp", ""));
+    }
+
+    /* max_entries=0 should use default (20), so cmd_0 through cmd_4 should be excluded */
+    char *json = context_build_ai_json("/tmp", 0);
+    TEST_ASSERT_NOT_NULL(json);
+
+    /* cmd_24 (most recent within top 20) should be present */
+    TEST_ASSERT_NOT_NULL(strstr(json, "cmd_24"));
+    /* cmd_5 should be present (5th oldest = within the 20 most recent) */
+    TEST_ASSERT_NOT_NULL(strstr(json, "cmd_5"));
+
     free(json);
     context_shutdown();
 }
@@ -94,6 +174,10 @@ int main(void)
     RUN_TEST(test_add_command);
     RUN_TEST(test_add_with_null_fields);
     RUN_TEST(test_session_id_unique);
-    RUN_TEST(test_build_ai_json_stub);
+    RUN_TEST(test_build_ai_json_not_initialized);
+    RUN_TEST(test_build_ai_json_empty);
+    RUN_TEST(test_build_ai_json_with_commands);
+    RUN_TEST(test_build_ai_json_includes_session_id);
+    RUN_TEST(test_build_ai_json_default_max_entries);
     return UNITY_END();
 }
