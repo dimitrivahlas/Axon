@@ -8,6 +8,7 @@ RUN apk add --no-cache \
     curl-dev \
     sqlite-dev \
     sqlite \
+    git \
     valgrind \
     gdb
 
