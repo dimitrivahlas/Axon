@@ -49,8 +49,11 @@ test_storage: $(CTX_DIR)/storage.o $(TEST_DIR)/test_storage.cpp
 test_context: $(CTX_OBJ) $(TEST_DIR)/test_context.c $(UNITY_SRC)
 	$(CC) $(CFLAGS) -o $(TEST_DIR)/$@ $(TEST_DIR)/test_context.c $(CTX_OBJ) $(UNITY_SRC) -lsqlite3 -lstdc++
 
+test_git_context: $(CTX_DIR)/git_context.o $(TEST_DIR)/test_git_context.cpp
+	$(CXX) $(CXXFLAGS) -o $(TEST_DIR)/$@ $(TEST_DIR)/test_git_context.cpp $(CTX_DIR)/git_context.o
+
 clean:
-	rm -f $(SRC_DIR)/*.o $(CTX_DIR)/*.o $(BIN) $(TEST_DIR)/test_parser $(TEST_DIR)/test_executor $(TEST_DIR)/test_builtins $(TEST_DIR)/test_storage $(TEST_DIR)/test_context
+	rm -f $(SRC_DIR)/*.o $(CTX_DIR)/*.o $(BIN) $(TEST_DIR)/test_parser $(TEST_DIR)/test_executor $(TEST_DIR)/test_builtins $(TEST_DIR)/test_storage $(TEST_DIR)/test_context $(TEST_DIR)/test_git_context
 
 docker:
 	docker build -t axon -f docker/Dockerfile .
@@ -58,7 +61,7 @@ docker:
 run: build
 	./$(BIN)
 
-test: test_parser test_executor test_builtins test_storage test_context
+test: test_parser test_executor test_builtins test_storage test_context test_git_context
 	@echo "=== Parser Tests ==="
 	@./$(TEST_DIR)/test_parser
 	@echo ""
@@ -73,3 +76,6 @@ test: test_parser test_executor test_builtins test_storage test_context
 	@echo ""
 	@echo "=== Context Tests ==="
 	@./$(TEST_DIR)/test_context
+	@echo ""
+	@echo "=== Git Context Tests ==="
+	@./$(TEST_DIR)/test_git_context
