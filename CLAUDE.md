@@ -32,6 +32,12 @@ Persistent project-aware memory. Tracks files, recent changes, errors, command h
 
 The developer has a systems programming background in C on Linux. Has built a shell, an interpreter, and worked with disassemblers. Comfortable with syscalls, process management, file descriptors, and memory. Currently developing on macOS using Docker for Linux environments.
 
+## Git Workflow
+
+- **Always create a feature branch** for every step/task before committing. Never commit directly to `main`.
+- Branch naming: `step-<number>/<short-description>` (e.g., `step-18/build-ai-json`).
+- Push the branch, then create a PR to merge into `main`.
+
 ## Coding Principles
 
 - Prefer simplicity over abstraction. Do not over-engineer early.
