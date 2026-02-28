@@ -8,7 +8,6 @@
 #include "builtins.h"
 #include "parser.h"
 #include "executor.h"
-#include "history.h"
 #include "ai.h"
 #include "../context/context.h"
 
@@ -74,8 +73,6 @@ int main(void)
     /* Initialize context engine (persistent history via SQLite) */
     context_init();
 
-    history_t hist;
-    history_init(&hist);
     int last_exit_code = 0;
 
     char *line;
@@ -92,7 +89,9 @@ int main(void)
             char *question = line + 2;
             while (*question == ' ' || *question == '\t')
                 question++;
-            ai_ask(question, &hist, cwd);
+            char *ctx_json = context_build_ai_json(cwd, 0);
+            ai_ask(question, ctx_json ? ctx_json : "{}", cwd);
+            free(ctx_json);
             continue;
         }
 
@@ -104,7 +103,9 @@ int main(void)
             char *intent = line + 3;
             while (*intent == ' ' || *intent == '\t')
                 intent++;
-            ai_suggest(intent, &hist, cwd);
+            char *ctx_json = context_build_ai_json(cwd, 0);
+            ai_suggest(intent, ctx_json ? ctx_json : "{}", cwd);
+            free(ctx_json);
             continue;
         }
 
@@ -166,7 +167,6 @@ int main(void)
             char cwd[PROMPT_MAX];
             if (getcwd(cwd, sizeof(cwd)) == NULL)
                 strncpy(cwd, "???", sizeof(cwd));
-            history_add(&hist, seg_copy, &result, cwd);
             context_add(seg_copy, result.exit_code, result.elapsed_ms,
                         cwd, result.stderr_capture);
             last_exit_code = result.exit_code;

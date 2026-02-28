@@ -88,8 +88,7 @@ axon/
 │   ├── parser.c/.h       # Tokenization, quotes, pipes, redirects, env vars, chaining
 │   ├── builtins.c/.h     # cd, exit, help
 │   ├── executor.c/.h     # Fork/exec, pipelines, I/O redirection, stderr capture
-│   ├── history.c/.h      # Command history ring buffer for AI context
-│   └── ai.c/.h           # Claude API integration via libcurl
+│   └── ai.c/.h           # Claude API integration via libcurl (uses context engine)
 ├── context/
 │   ├── context.cpp/.h    # Context engine public API (init, add, build JSON, shutdown)
 │   ├── storage.cpp/.h    # SQLite-backed persistent storage for commands and sessions
@@ -127,25 +126,26 @@ The shell is fully functional with:
 - Interactive REPL with colored prompt and signal handling
 - Command parsing with pipes, redirects, env vars, quotes, chaining
 - Fork/exec execution with pipelines, I/O redirection, stderr capture
-- AI integration via Claude API (`?` and `!!` commands)
-- Command history ring buffer feeding context to AI
+- AI integration via Claude API (`?` and `!!` commands) powered by context engine
 
-The context engine is operational with:
+The context engine is fully integrated with:
 - SQLite-backed persistent storage for commands and sessions
 - Session tracking with unique IDs across shell invocations
 - Git state gathering (branch, dirty status, modified/staged files, recent commits)
 - Full JSON context builder (`context_build_ai_json`) wiring storage + git into a structured AI payload
+- AI commands receive rich structured context (history, errors, git state, session info)
+- Old in-memory history ring buffer removed — all context flows through the context engine
 - 80 unit tests across 6 test suites, CI via GitHub Actions
 
-Next: Wire the context engine into the shell's AI commands, then Milestone 3 (Sandbox Executor).
+Next: Milestone 3 (Sandbox Executor).
 
 ## Milestones
 
 **Milestone 1 — Smart Shell Core (COMPLETE)**
 A working shell in C that accepts and executes commands, captures execution metadata (exit code, timing, stderr), and provides opt-in AI assistance via Claude API.
 
-**Milestone 2 — Context Engine (IN PROGRESS)**
-Persistent project-aware memory in C++. Tracks files, errors, command history, and patterns across sessions. Storage, git context, session tracking, and JSON builder are complete. Remaining: integrate into shell AI commands.
+**Milestone 2 — Context Engine (COMPLETE)**
+Persistent project-aware memory in C++. Tracks files, errors, command history, and patterns across sessions. Storage, git context, session tracking, JSON builder, and AI command integration are all complete.
 
 **Milestone 3 — Sandbox Executor (PLANNED)**
 Secure execution of AI-generated commands using Linux namespaces and seccomp filters.
