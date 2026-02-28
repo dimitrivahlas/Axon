@@ -7,7 +7,7 @@
 
 #define AI_TIMEOUT_SECS 30
 #define RESPONSE_BUF_MAX 65536
-#define PAYLOAD_MAX 65536
+#define PAYLOAD_MAX 131072
 
 typedef struct {
     char data[RESPONSE_BUF_MAX];
@@ -44,29 +44,6 @@ static size_t json_escape(char *out, size_t max, const char *src)
     }
     out[pos] = '\0';
     return pos;
-}
-
-static void build_history_json(char *out, size_t max, history_t *hist)
-{
-    size_t pos = 0;
-    pos += (size_t)snprintf(out + pos, max - pos, "[");
-
-    for (int i = 0; i < hist->count; i++) {
-        history_entry_t *e = &hist->entries[i];
-        char esc_cmd[8192], esc_cwd[2048], esc_stderr[8192];
-        json_escape(esc_cmd, sizeof(esc_cmd), e->raw_line);
-        json_escape(esc_cwd, sizeof(esc_cwd), e->cwd);
-        json_escape(esc_stderr, sizeof(esc_stderr), e->stderr_output);
-
-        if (i > 0)
-            pos += (size_t)snprintf(out + pos, max - pos, ",");
-        pos += (size_t)snprintf(out + pos, max - pos,
-            "{\"command\":\"%s\",\"exit_code\":%d,\"elapsed_ms\":%.1f,"
-            "\"cwd\":\"%s\",\"stderr\":\"%s\"}",
-            esc_cmd, e->exit_code, e->elapsed_ms, esc_cwd, esc_stderr);
-    }
-
-    snprintf(out + pos, max - pos, "]");
 }
 
 static const char *extract_text(const char *json)
@@ -194,45 +171,42 @@ static int call_claude(const char *system_prompt, const char *user_msg)
     return 0;
 }
 
-int ai_ask(const char *question, history_t *hist, const char *cwd)
+int ai_ask(const char *question, const char *context_json, const char *cwd)
 {
-    char history_json[16384];
-    build_history_json(history_json, sizeof(history_json), hist);
-
     char system_prompt[2048];
     snprintf(system_prompt, sizeof(system_prompt),
         "You are Axon, an AI assistant embedded in a Linux shell. "
-        "The user is asking for help. You have access to their recent "
-        "command history with exit codes and timing. Be concise and direct. "
-        "If a command failed, explain why and suggest a fix. "
+        "The user is asking for help. You receive structured context including "
+        "recent command history with exit codes and timing, error summaries, "
+        "git state (branch, dirty files, recent commits), and session info. "
+        "Be concise and direct. If a command failed, explain why and suggest a fix. "
         "Current working directory: %s",
         cwd);
 
     char user_msg[PAYLOAD_MAX];
     snprintf(user_msg, sizeof(user_msg),
-        "Recent command history: %s\n\nQuestion: %s",
-        history_json, question);
+        "Shell context: %s\n\nQuestion: %s",
+        context_json, question);
 
     return call_claude(system_prompt, user_msg);
 }
 
-int ai_suggest(const char *intent, history_t *hist, const char *cwd)
+int ai_suggest(const char *intent, const char *context_json, const char *cwd)
 {
-    char history_json[16384];
-    build_history_json(history_json, sizeof(history_json), hist);
-
     char system_prompt[2048];
     snprintf(system_prompt, sizeof(system_prompt),
         "You are Axon, an AI assistant embedded in a Linux shell. "
-        "The user describes what they want to do. Suggest a single shell command. "
+        "The user describes what they want to do. You receive structured context "
+        "including recent command history, error summaries, git state, and session info. "
+        "Suggest a single shell command. "
         "Reply with ONLY the command, no explanation, no markdown, no backticks. "
         "Current working directory: %s",
         cwd);
 
     char user_msg[PAYLOAD_MAX];
     snprintf(user_msg, sizeof(user_msg),
-        "Recent command history: %s\n\nI want to: %s",
-        history_json, intent);
+        "Shell context: %s\n\nI want to: %s",
+        context_json, intent);
 
     return call_claude(system_prompt, user_msg);
 }
