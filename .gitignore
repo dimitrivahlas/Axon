@@ -19,3 +19,12 @@ docker/tmp/
 
 # Environment
 .env
+
+# Test binaries
+tests/test_parser
+tests/test_executor
+tests/test_builtins
+tests/test_storage
+tests/test_context
+tests/test_git_context
+tests/test_sandbox
