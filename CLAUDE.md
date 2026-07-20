@@ -93,6 +93,8 @@ axon/
 │   ├── context.cpp/.h    # Context engine public API (init, add, build JSON, shutdown)
 │   ├── storage.cpp/.h    # SQLite-backed persistent storage for commands and sessions
 │   └── git_context.cpp/.h # Git state gathering (branch, dirty, modified/staged files, commits)
+├── sandbox/
+│   └── sandbox.c/.h      # Namespace-isolated command execution (PID + user namespaces)
 ├── tests/
 │   ├── test_parser.c     # Parser tests (45)
 │   ├── test_executor.c   # Executor tests (5)
@@ -100,6 +102,7 @@ axon/
 │   ├── test_storage.cpp  # Storage tests (9)
 │   ├── test_context.c    # Context engine tests (11)
 │   ├── test_git_context.cpp # Git context tests (4)
+│   ├── test_sandbox.c    # Sandbox tests (10)
 │   └── unity.*           # Unity test framework
 ├── docker/
 │   └── Dockerfile        # Alpine Linux dev container
@@ -120,7 +123,7 @@ AI assistance is opt-in only:
 
 ## Current Status
 
-Milestone 1 (Smart Shell Core) is complete. Milestone 2 (Context Engine) is nearly complete.
+Milestone 1 (Smart Shell Core) and Milestone 2 (Context Engine) are complete. Milestone 3 (Sandbox Executor) is in progress.
 
 The shell is fully functional with:
 - Interactive REPL with colored prompt and signal handling
@@ -135,9 +138,16 @@ The context engine is fully integrated with:
 - Full JSON context builder (`context_build_ai_json`) wiring storage + git into a structured AI payload
 - AI commands receive rich structured context (history, errors, git state, session info)
 - Old in-memory history ring buffer removed — all context flows through the context engine
-- 80 unit tests across 6 test suites, CI via GitHub Actions
+- 90 unit tests across 7 test suites, CI via GitHub Actions
 
-Next: Milestone 3 (Sandbox Executor).
+The sandbox executor scaffold is in place:
+- `sandbox_execute()` runs a command in new PID + user namespaces via `clone()`
+- UID/GID mapped to root inside the namespace; sync-pipe handshake for map setup
+- Stderr capture, exit code, and timing reported via `cmd_result_t`
+- Fails closed: if namespace setup is unavailable or fails, the command does not run
+- Not yet wired into the shell; network/mount isolation, seccomp, and timeouts still to come
+
+Next: Milestone 3 continued (seccomp filters, mount/network isolation, shell integration).
 
 ## Milestones
 
@@ -147,5 +157,5 @@ A working shell in C that accepts and executes commands, captures execution meta
 **Milestone 2 — Context Engine (COMPLETE)**
 Persistent project-aware memory in C++. Tracks files, errors, command history, and patterns across sessions. Storage, git context, session tracking, JSON builder, and AI command integration are all complete.
 
-**Milestone 3 — Sandbox Executor (PLANNED)**
+**Milestone 3 — Sandbox Executor (IN PROGRESS)**
 Secure execution of AI-generated commands using Linux namespaces and seccomp filters.
