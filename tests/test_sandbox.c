@@ -142,6 +142,67 @@ void test_signal_death_reported(void)
     TEST_ASSERT_EQUAL_INT(137, result.exit_code);
 }
 
+void test_network_isolated_by_default(void)
+{
+    /*
+     * A fresh network namespace has no route to the host's real interface
+     * (eth0). Some kernels auto-populate every new netns with zero-traffic
+     * pseudo devices (tunl0, gre0, sit0, ...) via pernet init, so the
+     * assertion is "no eth0", not "no extra devices at all". Checked via
+     * /proc/net/dev (not /sys/class/net) because sysfs's net class listing
+     * is bound to the netns the sysfs superblock was mounted in, not the
+     * reading task's current netns, while /proc/net/dev is generated
+     * per-task and reflects the sandboxed process's own namespace.
+     * stdout is redirected to stderr since sandbox_execute only captures
+     * stderr.
+     */
+    cmd_result_t result;
+    int rc = sandbox_execute("cat /proc/net/dev 1>&2", NULL, &result);
+    if (!have_userns) {
+        TEST_ASSERT_EQUAL_INT(-1, rc);
+        return;
+    }
+    TEST_ASSERT_EQUAL_INT(0, rc);
+    TEST_ASSERT_NULL(strstr(result.stderr_capture, "eth0"));
+}
+
+void test_network_allowed_when_opted_in(void)
+{
+    /* With allow_network set, the sandbox shares the host's netns */
+    sandbox_opts_t opts = {0};
+    opts.allow_network = 1;
+
+    cmd_result_t result;
+    int rc = sandbox_execute("true", &opts, &result);
+    if (!have_userns) {
+        TEST_ASSERT_EQUAL_INT(-1, rc);
+        return;
+    }
+    TEST_ASSERT_EQUAL_INT(0, rc);
+    TEST_ASSERT_EQUAL_INT(0, result.exit_code);
+}
+
+void test_mount_namespace_isolated(void)
+{
+    /* The sandboxed child must see a different mount namespace than us */
+    char host_ns[64] = {0};
+    ssize_t n = readlink("/proc/self/ns/mnt", host_ns, sizeof(host_ns) - 1);
+    TEST_ASSERT_TRUE(n > 0);
+
+    char cmd[256];
+    snprintf(cmd, sizeof(cmd), "test \"$(readlink /proc/self/ns/mnt)\" != \"%s\"",
+             host_ns);
+
+    cmd_result_t result;
+    int rc = sandbox_execute(cmd, NULL, &result);
+    if (!have_userns) {
+        TEST_ASSERT_EQUAL_INT(-1, rc);
+        return;
+    }
+    TEST_ASSERT_EQUAL_INT(0, rc);
+    TEST_ASSERT_EQUAL_INT(0, result.exit_code);
+}
+
 void test_timing_is_captured(void)
 {
     cmd_result_t result;
@@ -172,6 +233,9 @@ int main(void)
     RUN_TEST(test_runs_in_pid_namespace);
     RUN_TEST(test_uid_mapped_to_root);
     RUN_TEST(test_signal_death_reported);
+    RUN_TEST(test_network_isolated_by_default);
+    RUN_TEST(test_network_allowed_when_opted_in);
+    RUN_TEST(test_mount_namespace_isolated);
     RUN_TEST(test_timing_is_captured);
     return UNITY_END();
 }
