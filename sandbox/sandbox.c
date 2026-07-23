@@ -10,6 +10,7 @@
 #include <time.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <sys/mount.h>
 #include "sandbox.h"
 
 #define SANDBOX_STACK_SIZE (1024 * 1024)  /* 1 MB stack for clone child */
@@ -127,6 +128,20 @@ static int sandbox_child(void *arg)
     dup2(args->err_pipe_w, STDERR_FILENO);
     close(args->err_pipe_w);
 
+    /*
+     * A fresh mount namespace (CLONE_NEWNS) still inherits its parent's
+     * propagation type, which is "shared" by default on most distros. That
+     * means mounts/unmounts performed in here would otherwise propagate
+     * back into the host's mount table. Make the whole tree private and
+     * recursive so nothing escapes the sandbox. Fail closed if this can't
+     * be guaranteed.
+     */
+    if (mount(NULL, "/", NULL, MS_REC | MS_PRIVATE, NULL) != 0) {
+        fprintf(stderr, "axon: sandbox: failed to isolate mount namespace: %s\n",
+                strerror(errno));
+        _exit(126);
+    }
+
     /* Execute the command via /bin/sh -c */
     execl("/bin/sh", "sh", "-c", args->command, (char *)NULL);
 
@@ -138,7 +153,8 @@ static int sandbox_child(void *arg)
 int sandbox_execute(const char *command, const sandbox_opts_t *opts,
                     cmd_result_t *result)
 {
-    (void)opts;  /* Will be used in later steps for network/mount/timeout */
+    /* opts == NULL means most restrictive: network isolated, no timeout */
+    int allow_network = (opts != NULL) ? opts->allow_network : 0;
 
     if (command == NULL || result == NULL) {
         fprintf(stderr, "axon: sandbox: NULL argument\n");
@@ -190,10 +206,17 @@ int sandbox_execute(const char *command, const sandbox_opts_t *opts,
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);
 
-    /* Create child in new PID and user namespaces */
-    pid_t child = clone(sandbox_child, stack_top,
-                        CLONE_NEWPID | CLONE_NEWUSER | SIGCHLD,
-                        &args);
+    /*
+     * Create child in new PID, user, mount, and (unless explicitly
+     * allowed) network namespaces. A fresh network namespace starts with
+     * only a down loopback interface and no routes, so it is isolated
+     * from the host by construction.
+     */
+    int clone_flags = CLONE_NEWPID | CLONE_NEWUSER | CLONE_NEWNS | SIGCHLD;
+    if (!allow_network)
+        clone_flags |= CLONE_NEWNET;
+
+    pid_t child = clone(sandbox_child, stack_top, clone_flags, &args);
 
     if (child < 0) {
         fprintf(stderr, "axon: sandbox: clone: %s\n", strerror(errno));
