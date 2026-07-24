@@ -73,6 +73,22 @@ Testing is mandatory, not optional. Code without tests does not ship.
 - **Test framework**: Unity for C tests. C++ tests use a lightweight custom runner (see `tests/test_storage.cpp` for the pattern).
 - **CI runs all tests** on every push and PR via GitHub Actions.
 
+### End-to-End Tests
+
+- E2E tests live in `tests/e2e/` as shell scripts that pipe commands into
+  `./axon` and assert on stdout, stderr, and exit codes.
+- Every e2e test runs with an isolated HOME (`export HOME=$(mktemp -d)`)
+  so the context DB starts fresh and tests never touch `~/.axon/`.
+- AI commands (`?`, `!!`) are excluded from e2e — no API key in CI and
+  responses are nondeterministic. Gate any AI e2e behind `AXON_E2E_AI=1`
+  for local manual runs only.
+- The shell must suppress the interactive prompt when stdin is not a TTY
+  so e2e output is clean and assertable.
+- Run via `make e2e`. CI runs `make test && make e2e` on every push/PR.
+- New user-visible behavior (parsing, execution, persistence, sandbox)
+  requires an e2e test alongside its unit tests. Convert items from
+  MANUAL_TEST_PLAN.md into automated e2e where AI is not involved.
+
 ## What We Are NOT Building
 
 - A full operating system or kernel
