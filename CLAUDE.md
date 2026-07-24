@@ -241,10 +241,11 @@ Design decisions (fixed — individual steps must not revisit them):
 
 One branch/PR per step; every step adds tests covering success, failure, and edge cases, and `make clean && make build && make test` must pass before merging.
 
-*Step 14 — Minimal JSON parser (`step-14/mcp-json-parser`)*
-- New module `mcp/json_value.cpp/.h`: parse a UTF-8 JSON document into a value tree (object → map, array → vector, string, number, bool, null). API shape: a static `parse(const std::string &input, std::string &err)` returning an empty/invalid value on failure, plus typed accessors (`get_string`, `get_int`, `get_object_member`, `get_array`) that fail cleanly on type mismatch.
+*Step 14 — Minimal JSON parser + serializer (`step-14/mcp-json-parser`)*
+- New module `mcp/json_value.cpp/.h`: parse a UTF-8 JSON document into a value tree (object, array, string, number, bool, null). API shape: a static `parse(const std::string &input, std::string &err)` returning an empty/invalid value on failure, plus typed accessors (`get_string`, `get_int`, `get_object_member`, `get_array`) that fail cleanly on type mismatch.
+- The module also **serializes** a value tree back to a compact JSON string via `dump()`, with proper string escaping and builders (`object`/`array`/`set`/`push_back`). This is the single output path for MCP responses (Steps 15–17), so they never depend on the context engine's private `json_escape_str`. Objects preserve insertion order so output is deterministic. (Refinement R1 from the Milestone 4 plan review.)
 - Must handle string escapes (`\" \\ \/ \b \f \n \r \t \uXXXX` including surrogate pairs → UTF-8) and enforce a nesting-depth limit (64; exceeding it is a parse error — fail closed). No external libraries.
-- Tests in `tests/test_json_parse.cpp` (follow the `tests/test_storage.cpp` runner pattern): valid objects/arrays/nesting, all escape forms, numbers; malformed inputs (truncated, trailing garbage, bad escapes, over-depth, empty string) each return an error without crashing.
+- Tests in `tests/test_json_parse.cpp` (follow the `tests/test_storage.cpp` runner pattern): valid objects/arrays/nesting, all escape forms, numbers; malformed inputs (truncated, trailing garbage, bad escapes, over-depth, empty string) each return an error without crashing; serialization + a parse→dump→parse round-trip.
 
 *Step 15 — JSON-RPC stdio scaffold (`step-15/mcp-rpc-scaffold`)*
 - `mcp/rpc.cpp/.h`: `std::string rpc_handle_message(const std::string &line)` — returns the serialized response, or an empty string for notifications. Implement `initialize` (result: `protocolVersion`, `capabilities: {"tools": {}}`, `serverInfo: {"name": "axon-mcp", "version": ...}`), `notifications/initialized` (no reply), `ping` (empty object result), `tools/list` (empty `tools` array for now), and the three error codes above.
