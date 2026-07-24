@@ -23,17 +23,21 @@ MCP_SRC = $(wildcard $(MCP_DIR)/*.cpp)
 MCP_OBJ = $(MCP_SRC:.cpp=.o)
 
 BIN = axon
+MCP_BIN = axon-mcp
 
 .PHONY: all build clean docker run test e2e
 
 all: build
 
-# MCP objects are built so warnings surface under -Werror (the axon-mcp binary
-# is wired up in a later step).
-build: $(BIN) $(MCP_OBJ)
+build: $(BIN) $(MCP_BIN)
 
 $(BIN): $(OBJ) $(CTX_OBJ) $(SBX_OBJ)
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
+
+# axon-mcp: the MCP server binary (stdio JSON-RPC). Self-contained for now;
+# the SQLite-backed context tools link in at a later step.
+$(MCP_BIN): $(MCP_OBJ)
+	$(CXX) $(CXXFLAGS) -o $@ $^
 
 $(SRC_DIR)/%.o: $(SRC_DIR)/%.c
 	$(CC) $(CFLAGS) -c -o $@ $<
@@ -74,8 +78,11 @@ test_sandbox: $(SBX_OBJ) $(TEST_DIR)/test_sandbox.c $(UNITY_SRC)
 test_json_parse: $(MCP_DIR)/json_value.o $(TEST_DIR)/test_json_parse.cpp
 	$(CXX) $(CXXFLAGS) -o $(TEST_DIR)/$@ $(TEST_DIR)/test_json_parse.cpp $(MCP_DIR)/json_value.o
 
+test_mcp_rpc: $(MCP_DIR)/rpc.o $(MCP_DIR)/json_value.o $(TEST_DIR)/test_mcp_rpc.cpp
+	$(CXX) $(CXXFLAGS) -o $(TEST_DIR)/$@ $(TEST_DIR)/test_mcp_rpc.cpp $(MCP_DIR)/rpc.o $(MCP_DIR)/json_value.o
+
 clean:
-	rm -f $(SRC_DIR)/*.o $(CTX_DIR)/*.o $(SBX_DIR)/*.o $(MCP_DIR)/*.o $(BIN) $(TEST_DIR)/test_parser $(TEST_DIR)/test_executor $(TEST_DIR)/test_builtins $(TEST_DIR)/test_storage $(TEST_DIR)/test_context $(TEST_DIR)/test_git_context $(TEST_DIR)/test_sandbox $(TEST_DIR)/test_json_parse
+	rm -f $(SRC_DIR)/*.o $(CTX_DIR)/*.o $(SBX_DIR)/*.o $(MCP_DIR)/*.o $(BIN) $(MCP_BIN) $(TEST_DIR)/test_parser $(TEST_DIR)/test_executor $(TEST_DIR)/test_builtins $(TEST_DIR)/test_storage $(TEST_DIR)/test_context $(TEST_DIR)/test_git_context $(TEST_DIR)/test_sandbox $(TEST_DIR)/test_json_parse $(TEST_DIR)/test_mcp_rpc
 
 docker:
 	docker build -t axon -f docker/Dockerfile .
@@ -83,7 +90,7 @@ docker:
 run: build
 	./$(BIN)
 
-test: test_parser test_executor test_builtins test_storage test_context test_git_context test_sandbox test_json_parse
+test: test_parser test_executor test_builtins test_storage test_context test_git_context test_sandbox test_json_parse test_mcp_rpc
 	@echo "=== Parser Tests ==="
 	@./$(TEST_DIR)/test_parser
 	@echo ""
@@ -107,6 +114,9 @@ test: test_parser test_executor test_builtins test_storage test_context test_git
 	@echo ""
 	@echo "=== JSON Parse Tests ==="
 	@./$(TEST_DIR)/test_json_parse
+	@echo ""
+	@echo "=== MCP RPC Tests ==="
+	@./$(TEST_DIR)/test_mcp_rpc
 
 # End-to-end tests: drive the built ./axon binary over stdin and assert on
 # its output. Requires the binary, hence the build dependency.
