@@ -6,6 +6,7 @@
 #include <limits.h>
 #include <unistd.h>
 #include <sys/wait.h>
+#include <sys/stat.h>
 #include "unity.h"
 #include "../sandbox/sandbox.h"
 
@@ -413,6 +414,131 @@ void test_readonly_host_cwd_unaffected(void)
     TEST_ASSERT_TRUE(host_writable);
 }
 
+/* --- Resource limits (Step 10) --- */
+
+void test_rlimit_fsize_caps_file(void)
+{
+    /*
+     * RLIMIT_FSIZE caps a written file at 64 MB. Ask dd for 100 MB into a
+     * directory we own (writable in the sandbox): the write must fail and the
+     * resulting file must be no larger than the cap.
+     */
+    TEST_ASSERT_EQUAL_INT(0, ro_enter_owned_cwd());
+
+    cmd_result_t result;
+    int rc = sandbox_execute(
+        "dd if=/dev/zero of=axon_probe bs=1048576 count=100", NULL, &result);
+
+    if (!have_userns) {
+        ro_leave_owned_cwd();
+        TEST_ASSERT_EQUAL_INT(-1, rc);
+        return;
+    }
+
+    struct stat st;
+    int have_st = (stat("axon_probe", &st) == 0);
+    long size = have_st ? (long)st.st_size : -1;
+    ro_leave_owned_cwd();
+
+    TEST_ASSERT_EQUAL_INT(0, rc);
+    TEST_ASSERT_TRUE(result.exit_code != 0);          /* write hit the cap */
+    TEST_ASSERT_TRUE(have_st);
+    TEST_ASSERT_TRUE(size <= 64 * 1024 * 1024);       /* 64 MB cap */
+}
+
+void test_rlimit_nofile_caps_fds(void)
+{
+    /*
+     * RLIMIT_NOFILE caps open descriptors at 256. Opening past that must fail
+     * before the loop reaches "ALLOPEN".
+     */
+    cmd_result_t result;
+    int rc = sandbox_execute(
+        "sh -c 'n=3; while [ $n -lt 300 ]; do eval \"exec ${n}>/dev/null\" "
+        "|| exit 1; n=$((n+1)); done; echo ALLOPEN 1>&2'", NULL, &result);
+
+    if (!have_userns) {
+        TEST_ASSERT_EQUAL_INT(-1, rc);
+        return;
+    }
+    TEST_ASSERT_EQUAL_INT(0, rc);
+    TEST_ASSERT_TRUE(result.exit_code != 0);
+    TEST_ASSERT_NULL(strstr(result.stderr_capture, "ALLOPEN"));
+}
+
+void test_rlimit_as_caps_memory(void)
+{
+    /*
+     * RLIMIT_AS caps address space at 512 MB. dd asking for a 600 MB buffer
+     * cannot allocate it and fails with an out-of-memory error.
+     */
+    cmd_result_t result;
+    int rc = sandbox_execute(
+        "dd if=/dev/zero of=/dev/null bs=600M count=1", NULL, &result);
+
+    if (!have_userns) {
+        TEST_ASSERT_EQUAL_INT(-1, rc);
+        return;
+    }
+    TEST_ASSERT_EQUAL_INT(0, rc);
+    TEST_ASSERT_TRUE(result.exit_code != 0);
+    TEST_ASSERT_NOT_NULL(strstr(result.stderr_capture, "memory"));
+}
+
+void test_rlimit_nproc_value_set(void)
+{
+    /*
+     * RLIMIT_NPROC is set to 64. It is best-effort (the kernel does not
+     * enforce it inside a nested user namespace — see the caveat in
+     * sandbox.c), so this asserts the limit VALUE is applied rather than
+     * actual fork failure.
+     */
+    cmd_result_t result;
+    int rc = sandbox_execute("echo nproc=$(ulimit -u) 1>&2", NULL, &result);
+
+    if (!have_userns) {
+        TEST_ASSERT_EQUAL_INT(-1, rc);
+        return;
+    }
+    TEST_ASSERT_EQUAL_INT(0, rc);
+    TEST_ASSERT_EQUAL_INT(0, result.exit_code);
+    TEST_ASSERT_NOT_NULL(strstr(result.stderr_capture, "nproc=64"));
+}
+
+void test_capabilities_dropped(void)
+{
+    /*
+     * The child sheds all capabilities before exec, so the command runs with
+     * an empty effective set.
+     */
+    cmd_result_t result;
+    int rc = sandbox_execute("grep CapEff /proc/self/status 1>&2", NULL, &result);
+
+    if (!have_userns) {
+        TEST_ASSERT_EQUAL_INT(-1, rc);
+        return;
+    }
+    TEST_ASSERT_EQUAL_INT(0, rc);
+    TEST_ASSERT_EQUAL_INT(0, result.exit_code);
+    TEST_ASSERT_NOT_NULL(strstr(result.stderr_capture, "CapEff:\t0000000000000000"));
+}
+
+void test_rlimit_normal_command_succeeds(void)
+{
+    /* A modest command well within every limit still runs normally. */
+    cmd_result_t result;
+    int rc = sandbox_execute("for i in 1 2 3 4 5; do true; done; echo ok 1>&2",
+                             NULL, &result);
+
+    if (!have_userns) {
+        TEST_ASSERT_EQUAL_INT(-1, rc);
+        return;
+    }
+    TEST_ASSERT_EQUAL_INT(0, rc);
+    TEST_ASSERT_EQUAL_INT(0, result.exit_code);
+    TEST_ASSERT_NOT_NULL(strstr(result.stderr_capture, "ok"));
+}
+
 int main(void)
 {
     have_userns = userns_available();
@@ -441,5 +567,11 @@ int main(void)
     RUN_TEST(test_readonly_allows_read);
     RUN_TEST(test_readonly_unset_allows_write);
     RUN_TEST(test_readonly_host_cwd_unaffected);
+    RUN_TEST(test_rlimit_fsize_caps_file);
+    RUN_TEST(test_rlimit_nofile_caps_fds);
+    RUN_TEST(test_rlimit_as_caps_memory);
+    RUN_TEST(test_rlimit_nproc_value_set);
+    RUN_TEST(test_capabilities_dropped);
+    RUN_TEST(test_rlimit_normal_command_succeeds);
     return UNITY_END();
 }
