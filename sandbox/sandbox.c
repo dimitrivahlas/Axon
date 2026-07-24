@@ -10,6 +10,7 @@
 #include <time.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <poll.h>
 #include <sys/mount.h>
 #include "sandbox.h"
 
@@ -80,16 +81,64 @@ static int setup_uid_gid_map(pid_t child_pid)
 }
 
 /*
- * Read stderr from the child and tee it to the real stderr + capture buffer.
- * Same pattern as executor.c read_and_tee_stderr().
+ * Milliseconds remaining until deadline (may be <= 0 if already elapsed).
  */
-static void read_and_tee_stderr(int fd, char *capture, size_t cap_max)
+static long ms_until(const struct timespec *deadline)
+{
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    return (deadline->tv_sec - now.tv_sec) * 1000L
+         + (deadline->tv_nsec - now.tv_nsec) / 1000000L;
+}
+
+/*
+ * Read stderr from the child and tee it to the real stderr + capture buffer.
+ * Same pattern as executor.c read_and_tee_stderr(), extended with a deadline.
+ *
+ * When timeout_ms == 0 the read blocks until EOF (all writers closed) exactly
+ * as before. When timeout_ms > 0 each read is gated by poll() against
+ * *deadline; if the deadline passes before EOF the function stops early.
+ *
+ * Returns 1 if the deadline expired before the child's stderr closed,
+ * 0 if it read all the way to EOF (or hit a fatal read/poll error).
+ */
+static int read_and_tee_stderr(int fd, char *capture, size_t cap_max,
+                               long timeout_ms, const struct timespec *deadline)
 {
     size_t pos = 0;
     char buf[1024];
-    ssize_t n;
 
-    while ((n = read(fd, buf, sizeof(buf))) > 0) {
+    for (;;) {
+        if (timeout_ms > 0) {
+            long remaining = ms_until(deadline);
+            if (remaining <= 0) {
+                capture[pos] = '\0';
+                return 1;   /* out of time */
+            }
+
+            struct pollfd pfd = { .fd = fd, .events = POLLIN };
+            int pr = poll(&pfd, 1, (int)remaining);
+            if (pr < 0) {
+                if (errno == EINTR)
+                    continue;
+                break;      /* poll failed: stop capturing, reap as normal */
+            }
+            if (pr == 0) {
+                capture[pos] = '\0';
+                return 1;   /* deadline hit with no more data */
+            }
+            /* poll reports the fd readable (or hung up): read won't block */
+        }
+
+        ssize_t n = read(fd, buf, sizeof(buf));
+        if (n < 0) {
+            if (errno == EINTR)
+                continue;
+            break;
+        }
+        if (n == 0)
+            break;          /* EOF: every writer (child + descendants) closed */
+
         if (write(STDERR_FILENO, buf, (size_t)n) < 0) {
             /* Tee to the real stderr is best-effort; keep capturing */
         }
@@ -103,6 +152,7 @@ static void read_and_tee_stderr(int fd, char *capture, size_t cap_max)
         }
     }
     capture[pos] = '\0';
+    return 0;
 }
 
 /*
@@ -258,11 +308,51 @@ int sandbox_execute(const char *command, const sandbox_opts_t *opts,
     }
     close(sync_pipe[1]);
 
-    /* Read and capture stderr from the child */
-    read_and_tee_stderr(err_pipe[0], result->stderr_capture, SANDBOX_CAPTURE_MAX);
+    /*
+     * Compute the wall-clock deadline. timeout_ms == 0 means no limit, in
+     * which case read_and_tee_stderr blocks until EOF and `deadline` is
+     * ignored. The deadline is measured from `start` (captured just before
+     * clone), so it bounds total sandbox time, matching elapsed_ms.
+     */
+    long timeout_ms = (opts != NULL) ? opts->timeout_ms : 0;
+    struct timespec deadline = start;
+    if (timeout_ms > 0) {
+        deadline.tv_sec  += timeout_ms / 1000;
+        deadline.tv_nsec += (timeout_ms % 1000) * 1000000L;
+        if (deadline.tv_nsec >= 1000000000L) {
+            deadline.tv_sec += 1;
+            deadline.tv_nsec -= 1000000000L;
+        }
+    }
+
+    /* Read and capture stderr from the child, bounded by the deadline */
+    int timed_out = read_and_tee_stderr(err_pipe[0], result->stderr_capture,
+                                        SANDBOX_CAPTURE_MAX, timeout_ms, &deadline);
+
+    if (timed_out) {
+        /*
+         * The child is PID 1 in its PID namespace; SIGKILLing it makes the
+         * kernel reap every other process in that namespace too, so no
+         * runaway descendant is left behind.
+         */
+        kill(child, SIGKILL);
+
+        char msg[80];
+        int len = snprintf(msg, sizeof(msg),
+                           "axon: sandbox: timed out after %ld ms\n", timeout_ms);
+        if (len > 0) {
+            if (fwrite(msg, 1, (size_t)len, stderr) < (size_t)len) {
+                /* Notice on real stderr is best-effort */
+            }
+            size_t used = strlen(result->stderr_capture);
+            if (used < SANDBOX_CAPTURE_MAX - 1)
+                strncat(result->stderr_capture, msg,
+                        SANDBOX_CAPTURE_MAX - 1 - used);
+        }
+    }
     close(err_pipe[0]);
 
-    /* Wait for child to finish */
+    /* Wait for child to finish (it is dead already if we timed out) */
     int status;
     while (waitpid(child, &status, 0) < 0) {
         if (errno != EINTR) {
@@ -274,7 +364,9 @@ int sandbox_execute(const char *command, const sandbox_opts_t *opts,
 
     clock_gettime(CLOCK_MONOTONIC, &end);
 
-    if (WIFEXITED(status))
+    if (timed_out)
+        result->exit_code = SANDBOX_TIMEOUT_EXIT;
+    else if (WIFEXITED(status))
         result->exit_code = WEXITSTATUS(status);
     else if (WIFSIGNALED(status))
         result->exit_code = 128 + WTERMSIG(status);

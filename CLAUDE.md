@@ -37,6 +37,7 @@ The developer has a systems programming background in C on Linux. Has built a sh
 - **Always create a feature branch** for every step/task before committing. Never commit directly to `main`.
 - Branch naming: `step-<number>/<short-description>` (e.g., `step-18/build-ai-json`).
 - Push the branch, then create a PR to merge into `main`.
+- **Never attribute authorship to Claude/AI** in commit messages, PR descriptions, or code. Do not add `Co-Authored-By: Claude` trailers, "Generated with Claude" lines, or any similar attribution.
 
 ## Coding Principles
 
