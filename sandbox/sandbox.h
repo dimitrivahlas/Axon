@@ -43,6 +43,11 @@ typedef struct {
  * cannot exhaust host resources. If any limit or the capability drop cannot
  * be applied, the command does not run (fail closed).
  *
+ * Seccomp: a syscall allowlist is loaded just before exec. Syscalls outside
+ * the list fail with EPERM; dangerous ones (mount, ptrace, reboot, kernel
+ * module and namespace calls, and the socket family) are denied. If the
+ * filter cannot be installed, the command does not run (fail closed).
+ *
  * Read-only cwd: if opts->read_only_cwd is set, the working directory is
  * bind-remounted read-only inside the sandbox, so the command can read but
  * not create, modify, or delete files under it. Only the cwd subtree is

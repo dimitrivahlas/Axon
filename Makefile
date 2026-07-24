@@ -61,7 +61,7 @@ test_git_context: $(CTX_DIR)/git_context.o $(TEST_DIR)/test_git_context.cpp
 	$(CXX) $(CXXFLAGS) -o $(TEST_DIR)/$@ $(TEST_DIR)/test_git_context.cpp $(CTX_DIR)/git_context.o
 
 test_sandbox: $(SBX_OBJ) $(TEST_DIR)/test_sandbox.c $(UNITY_SRC)
-	$(CC) $(CFLAGS) -o $(TEST_DIR)/$@ $(TEST_DIR)/test_sandbox.c $(SBX_OBJ) $(UNITY_SRC)
+	$(CC) $(CFLAGS) -o $(TEST_DIR)/$@ $(TEST_DIR)/test_sandbox.c $(SBX_OBJ) $(UNITY_SRC) -lseccomp
 
 clean:
 	rm -f $(SRC_DIR)/*.o $(CTX_DIR)/*.o $(SBX_DIR)/*.o $(BIN) $(TEST_DIR)/test_parser $(TEST_DIR)/test_executor $(TEST_DIR)/test_builtins $(TEST_DIR)/test_storage $(TEST_DIR)/test_context $(TEST_DIR)/test_git_context $(TEST_DIR)/test_sandbox

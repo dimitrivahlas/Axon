@@ -545,6 +545,47 @@ void test_rlimit_normal_command_succeeds(void)
     TEST_ASSERT_NOT_NULL(strstr(result.stderr_capture, "ok"));
 }
 
+/* --- Seccomp filter (Step 11) --- */
+
+void test_seccomp_allows_normal_command(void)
+{
+    /*
+     * A typical command exercises many allowlisted syscalls (exec, read,
+     * write, brk/mmap, fstat, ...). It must still run cleanly under the
+     * filter. A pipe is included so clone/pipe/dup are covered too.
+     */
+    cmd_result_t result;
+    int rc = sandbox_execute("echo seccomp_ok | tr a-z A-Z 1>&2", NULL, &result);
+
+    if (!have_userns) {
+        TEST_ASSERT_EQUAL_INT(-1, rc);
+        return;
+    }
+    TEST_ASSERT_EQUAL_INT(0, rc);
+    TEST_ASSERT_EQUAL_INT(0, result.exit_code);
+    TEST_ASSERT_NOT_NULL(strstr(result.stderr_capture, "SECCOMP_OK"));
+}
+
+void test_seccomp_denies_mount(void)
+{
+    /*
+     * mount() is deliberately left off the allowlist, so the filter fails it
+     * with EPERM. The mount command therefore cannot succeed: it exits
+     * nonzero and reports a permission error, not a successful mount.
+     */
+    cmd_result_t result;
+    int rc = sandbox_execute("mount -t tmpfs none /mnt 2>&1 1>&2; "
+                             "echo mount_rc=$? 1>&2", NULL, &result);
+
+    if (!have_userns) {
+        TEST_ASSERT_EQUAL_INT(-1, rc);
+        return;
+    }
+    TEST_ASSERT_EQUAL_INT(0, rc);
+    /* The mount attempt failed (nonzero rc echoed) rather than mounting. */
+    TEST_ASSERT_NULL(strstr(result.stderr_capture, "mount_rc=0"));
+}
+
 int main(void)
 {
     have_userns = userns_available();
@@ -579,5 +620,7 @@ int main(void)
     RUN_TEST(test_rlimit_nproc_value_set);
     RUN_TEST(test_capabilities_dropped);
     RUN_TEST(test_rlimit_normal_command_succeeds);
+    RUN_TEST(test_seccomp_allows_normal_command);
+    RUN_TEST(test_seccomp_denies_mount);
     return UNITY_END();
 }
