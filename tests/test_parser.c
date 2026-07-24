@@ -535,6 +535,26 @@ void test_sandbox_prefix_rejects_plain_command(void)
     TEST_ASSERT_NULL(sandbox_prefix("echo hi"));
 }
 
+/* --- is_affirmative (Step 13) --- */
+
+void test_is_affirmative_yes(void)
+{
+    TEST_ASSERT_EQUAL_INT(1, is_affirmative("y"));
+    TEST_ASSERT_EQUAL_INT(1, is_affirmative("Y"));
+    TEST_ASSERT_EQUAL_INT(1, is_affirmative("yes"));
+    TEST_ASSERT_EQUAL_INT(1, is_affirmative("  y\n"));
+}
+
+void test_is_affirmative_defaults_to_no(void)
+{
+    TEST_ASSERT_EQUAL_INT(0, is_affirmative(""));      /* bare Enter = No */
+    TEST_ASSERT_EQUAL_INT(0, is_affirmative("\n"));
+    TEST_ASSERT_EQUAL_INT(0, is_affirmative("n"));
+    TEST_ASSERT_EQUAL_INT(0, is_affirmative("no"));
+    TEST_ASSERT_EQUAL_INT(0, is_affirmative("maybe"));
+    TEST_ASSERT_EQUAL_INT(0, is_affirmative(NULL));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -589,5 +609,7 @@ int main(void)
     RUN_TEST(test_sandbox_prefix_rejects_no_separator);
     RUN_TEST(test_sandbox_prefix_rejects_empty_command);
     RUN_TEST(test_sandbox_prefix_rejects_plain_command);
+    RUN_TEST(test_is_affirmative_yes);
+    RUN_TEST(test_is_affirmative_defaults_to_no);
     return UNITY_END();
 }

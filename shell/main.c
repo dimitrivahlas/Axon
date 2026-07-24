@@ -112,8 +112,40 @@ int main(void)
             while (*intent == ' ' || *intent == '\t')
                 intent++;
             char *ctx_json = context_build_ai_json(cwd, 0);
-            ai_suggest(intent, ctx_json ? ctx_json : "{}", cwd);
+            char suggested[AXON_INPUT_MAX];
+            int ok = ai_suggest(intent, ctx_json ? ctx_json : "{}", cwd,
+                                suggested, sizeof(suggested));
             free(ctx_json);
+
+            /* Offer to run the suggestion in the sandbox. Default is No, and
+             * nothing runs unless the user explicitly answers yes. */
+            if (ok == 0 && suggested[0] != '\0') {
+                fprintf(stderr, "run in sandbox? [y/N] ");
+                char answer[64];
+                if (fgets(answer, sizeof(answer), stdin) != NULL &&
+                    is_affirmative(answer)) {
+                    sandbox_opts_t opts = {0};   /* most restrictive defaults */
+                    opts.timeout_ms = SANDBOX_DEFAULT_TIMEOUT_MS;
+
+                    cmd_result_t result;
+                    if (sandbox_execute(suggested, &opts, &result) != 0) {
+                        fprintf(stderr, "\033[1;31maxon: sandbox: command did not run\033[0m\n");
+                        last_exit_code = 1;
+                    } else {
+                        /* Tag with '&' so history shows it ran sandboxed.
+                         * +4 leaves room for the "& " prefix and NUL so the
+                         * snprintf can never truncate. */
+                        char tagged[AXON_INPUT_MAX + 4];
+                        snprintf(tagged, sizeof(tagged), "& %s", suggested);
+                        context_add(tagged, result.exit_code, result.elapsed_ms,
+                                    cwd, result.stderr_capture);
+                        last_exit_code = result.exit_code;
+                        if (result.exit_code != 0)
+                            fprintf(stderr, "\033[1;31m[exit %d | %.1fms]\033[0m\n",
+                                    result.exit_code, result.elapsed_ms);
+                    }
+                }
+            }
             continue;
         }
 

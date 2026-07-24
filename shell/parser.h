@@ -78,4 +78,11 @@ int parse_chain(char *line, chain_t *chain);
  */
 const char *sandbox_prefix(const char *line);
 
+/*
+ * Interpret a yes/no answer for a prompt whose default is No.
+ * Returns 1 only for an explicit yes (leading 'y' or 'Y', after optional
+ * whitespace); everything else — empty, "n", or garbage — returns 0.
+ */
+int is_affirmative(const char *answer);
+
 #endif

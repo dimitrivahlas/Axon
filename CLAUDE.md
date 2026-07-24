@@ -139,7 +139,9 @@ axon/
 
 AI assistance is opt-in only:
 - `? <question>` — ask Claude a question with full command context
-- `!! <intent>` — Claude suggests a command based on intent
+- `!! <intent>` — Claude suggests a command based on intent, then offers to run
+  it in the sandbox (`run in sandbox? [y/N]`, default No). The suggestion is
+  never executed automatically — only on an explicit yes.
 - `& <command>` — run a command in the sandbox executor (isolated namespaces,
   read-only cwd, resource limits, dropped capabilities, seccomp filter, 30 s
   timeout). Nothing runs sandboxed unless prefixed with `&`.
