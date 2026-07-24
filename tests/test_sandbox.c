@@ -1,7 +1,9 @@
 #define _GNU_SOURCE
 #include <sched.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <limits.h>
 #include <unistd.h>
 #include <sys/wait.h>
 #include "unity.h"
@@ -277,6 +279,140 @@ void test_timeout_zero_is_unlimited(void)
     TEST_ASSERT_TRUE(result.elapsed_ms >= 1000.0);
 }
 
+/* --- Read-only working directory (Step 9) --- */
+
+/*
+ * The read-only checks run inside a throwaway directory that THIS process
+ * owns, then chdir into it. That matters: the sandbox maps the caller's uid
+ * to root inside the namespace, so a caller-owned cwd is writable there by
+ * default — which is exactly what lets us prove the read-only mount (EROFS),
+ * rather than accidentally observing a permission error (EACCES) on a
+ * directory owned by some other uid. saved_cwd is restored in teardown.
+ */
+static char ro_tmpdir[PATH_MAX];
+static char ro_saved_cwd[PATH_MAX];
+static int ro_entered;
+
+static int ro_enter_owned_cwd(void)
+{
+    strcpy(ro_tmpdir, "/tmp/axon_ro_XXXXXX");
+    if (mkdtemp(ro_tmpdir) == NULL)
+        return -1;
+    if (getcwd(ro_saved_cwd, sizeof(ro_saved_cwd)) == NULL)
+        return -1;
+    if (chdir(ro_tmpdir) != 0)
+        return -1;
+    ro_entered = 1;
+    return 0;
+}
+
+static void ro_leave_owned_cwd(void)
+{
+    if (!ro_entered)
+        return;
+    /* Remove any probe files a test may have left, then the dir itself. */
+    remove("axon_probe");
+    if (chdir(ro_saved_cwd) == 0)
+        rmdir(ro_tmpdir);
+    ro_entered = 0;
+}
+
+void test_readonly_blocks_write(void)
+{
+    /*
+     * With read_only_cwd set, creating a file in the cwd must fail because
+     * the filesystem is read-only. We assert on the EROFS message, not just a
+     * nonzero exit, so the test can't pass on an unrelated permission error.
+     */
+    TEST_ASSERT_EQUAL_INT(0, ro_enter_owned_cwd());
+
+    sandbox_opts_t opts = {0};
+    opts.read_only_cwd = 1;
+
+    cmd_result_t result;
+    int rc = sandbox_execute("touch axon_probe", &opts, &result);
+
+    if (!have_userns) {
+        ro_leave_owned_cwd();
+        TEST_ASSERT_EQUAL_INT(-1, rc);
+        return;
+    }
+    ro_leave_owned_cwd();
+    TEST_ASSERT_EQUAL_INT(0, rc);
+    TEST_ASSERT_TRUE(result.exit_code != 0);
+    TEST_ASSERT_NOT_NULL(strstr(result.stderr_capture, "Read-only"));
+}
+
+void test_readonly_allows_read(void)
+{
+    /* Reads from the cwd still succeed under a read-only mount. */
+    TEST_ASSERT_EQUAL_INT(0, ro_enter_owned_cwd());
+
+    sandbox_opts_t opts = {0};
+    opts.read_only_cwd = 1;
+
+    cmd_result_t result;
+    int rc = sandbox_execute("ls . > /dev/null", &opts, &result);
+
+    if (!have_userns) {
+        ro_leave_owned_cwd();
+        TEST_ASSERT_EQUAL_INT(-1, rc);
+        return;
+    }
+    ro_leave_owned_cwd();
+    TEST_ASSERT_EQUAL_INT(0, rc);
+    TEST_ASSERT_EQUAL_INT(0, result.exit_code);
+}
+
+void test_readonly_unset_allows_write(void)
+{
+    /* With the flag unset (default), writes to the cwd still work. */
+    TEST_ASSERT_EQUAL_INT(0, ro_enter_owned_cwd());
+
+    sandbox_opts_t opts = {0};
+    opts.read_only_cwd = 0;
+
+    cmd_result_t result;
+    int rc = sandbox_execute("touch axon_probe", &opts, &result);
+
+    if (!have_userns) {
+        ro_leave_owned_cwd();
+        TEST_ASSERT_EQUAL_INT(-1, rc);
+        return;
+    }
+    ro_leave_owned_cwd();
+    TEST_ASSERT_EQUAL_INT(0, rc);
+    TEST_ASSERT_EQUAL_INT(0, result.exit_code);
+}
+
+void test_readonly_host_cwd_unaffected(void)
+{
+    /*
+     * The read-only bind-remount must stay confined to the child's private
+     * mount namespace: after a read-only sandbox run, this (host) process
+     * must still be able to write to its own cwd.
+     */
+    TEST_ASSERT_EQUAL_INT(0, ro_enter_owned_cwd());
+
+    sandbox_opts_t opts = {0};
+    opts.read_only_cwd = 1;
+
+    cmd_result_t result;
+    int rc = sandbox_execute("true", &opts, &result);
+    if (have_userns)
+        TEST_ASSERT_EQUAL_INT(0, rc);
+    else
+        TEST_ASSERT_EQUAL_INT(-1, rc);
+
+    /* Host cwd must remain writable regardless of namespace support. */
+    FILE *f = fopen("axon_probe", "w");
+    int host_writable = (f != NULL);
+    if (f != NULL)
+        fclose(f);
+    ro_leave_owned_cwd();
+    TEST_ASSERT_TRUE(host_writable);
+}
+
 int main(void)
 {
     have_userns = userns_available();
@@ -301,5 +437,9 @@ int main(void)
     RUN_TEST(test_timeout_allows_fast_command);
     RUN_TEST(test_timeout_kills_slow_command);
     RUN_TEST(test_timeout_zero_is_unlimited);
+    RUN_TEST(test_readonly_blocks_write);
+    RUN_TEST(test_readonly_allows_read);
+    RUN_TEST(test_readonly_unset_allows_write);
+    RUN_TEST(test_readonly_host_cwd_unaffected);
     return UNITY_END();
 }

@@ -17,7 +17,7 @@
  */
 typedef struct {
     int allow_network;       /* 0 = isolated (default), 1 = share host netns */
-    int read_only_cwd;       /* 0 = read-write (default), 1 = read-only (not yet implemented) */
+    int read_only_cwd;       /* 0 = read-write (default), 1 = working dir mounted read-only */
     long timeout_ms;         /* Max wall-clock execution time in ms (0 = no limit) */
 } sandbox_opts_t;
 
@@ -35,6 +35,14 @@ typedef struct {
  * or sockets. It has no real connectivity, though some kernels populate
  * every new netns with inert pseudo-devices (tunl0, gre0, sit0, ...) in
  * addition to the loopback.
+ *
+ * Read-only cwd: if opts->read_only_cwd is set, the working directory is
+ * bind-remounted read-only inside the sandbox, so the command can read but
+ * not create, modify, or delete files under it. Only the cwd subtree is
+ * affected (the rest of the filesystem keeps its normal permissions), and
+ * because the remount lives in the child's private mount namespace the host
+ * cwd is never changed. If the remount cannot be set up the command does not
+ * run (fail closed).
  *
  * Timeout: if opts->timeout_ms > 0, the command is given at most that many
  * milliseconds of wall-clock time. On expiry the child (PID 1 in its PID

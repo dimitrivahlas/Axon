@@ -10,6 +10,7 @@
 #include <time.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <poll.h>
 #include <sys/mount.h>
 #include "sandbox.h"
@@ -22,6 +23,7 @@ typedef struct {
     const char *command;
     int err_pipe_w;     /* write end of stderr capture pipe */
     int sync_pipe_r;    /* read end of sync pipe — child blocks until parent signals */
+    int read_only_cwd;  /* 1 = bind-remount the working directory read-only */
 } sandbox_child_args_t;
 
 /*
@@ -192,6 +194,43 @@ static int sandbox_child(void *arg)
         _exit(126);
     }
 
+    /*
+     * Optionally make the working directory read-only. The child inherited
+     * the caller's cwd across clone(), so getcwd() names the same directory.
+     * A directory cannot be made read-only in a single bind mount: MS_RDONLY
+     * is ignored on the initial MS_BIND and only takes effect via a follow-up
+     * MS_REMOUNT. Both mounts live in this private mount namespace, so the
+     * host mount table and cwd are untouched. Fail closed if either fails.
+     */
+    if (args->read_only_cwd) {
+        char cwd[PATH_MAX];
+        if (getcwd(cwd, sizeof(cwd)) == NULL) {
+            fprintf(stderr, "axon: sandbox: getcwd failed: %s\n", strerror(errno));
+            _exit(126);
+        }
+        if (mount(cwd, cwd, NULL, MS_BIND, NULL) != 0) {
+            fprintf(stderr, "axon: sandbox: failed to bind cwd: %s\n",
+                    strerror(errno));
+            _exit(126);
+        }
+        if (mount(cwd, cwd, NULL, MS_REMOUNT | MS_BIND | MS_RDONLY, NULL) != 0) {
+            fprintf(stderr, "axon: sandbox: failed to remount cwd read-only: %s\n",
+                    strerror(errno));
+            _exit(126);
+        }
+        /*
+         * The process's cwd was resolved before the bind mount, so it is
+         * still pinned to the underlying writable directory. Re-enter the
+         * path so the cwd points at the new read-only mount; otherwise a
+         * relative write (e.g. "touch f") would slip past it.
+         */
+        if (chdir(cwd) != 0) {
+            fprintf(stderr, "axon: sandbox: failed to re-enter read-only cwd: %s\n",
+                    strerror(errno));
+            _exit(126);
+        }
+    }
+
     /* Execute the command via /bin/sh -c */
     execl("/bin/sh", "sh", "-c", args->command, (char *)NULL);
 
@@ -205,6 +244,7 @@ int sandbox_execute(const char *command, const sandbox_opts_t *opts,
 {
     /* opts == NULL means most restrictive: network isolated, no timeout */
     int allow_network = (opts != NULL) ? opts->allow_network : 0;
+    int read_only_cwd = (opts != NULL) ? opts->read_only_cwd : 0;
 
     if (command == NULL || result == NULL) {
         fprintf(stderr, "axon: sandbox: NULL argument\n");
@@ -251,6 +291,7 @@ int sandbox_execute(const char *command, const sandbox_opts_t *opts,
         .command = command,
         .err_pipe_w = err_pipe[1],
         .sync_pipe_r = sync_pipe[0],
+        .read_only_cwd = read_only_cwd,
     };
 
     struct timespec start, end;
