@@ -321,3 +321,24 @@ int parse_chain(char *line, chain_t *chain)
 
     return 0;
 }
+
+const char *sandbox_prefix(const char *line)
+{
+    if (line == NULL || line[0] != '&')
+        return NULL;
+
+    /* "&&" is the chain operator, not the sandbox prefix, and "&x" (no
+     * separator) is not a prefix either — require whitespace after '&'. */
+    if (line[1] != ' ' && line[1] != '\t')
+        return NULL;
+
+    const char *cmd = line + 1;
+    while (*cmd == ' ' || *cmd == '\t')
+        cmd++;
+
+    /* "& " with nothing after it is not a command. */
+    if (*cmd == '\0')
+        return NULL;
+
+    return cmd;
+}

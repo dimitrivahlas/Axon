@@ -9,7 +9,10 @@
 #include "parser.h"
 #include "executor.h"
 #include "ai.h"
+#include "../sandbox/sandbox.h"
 #include "../context/context.h"
+
+#define SANDBOX_DEFAULT_TIMEOUT_MS 30000  /* 30 s cap on shell-run sandboxed commands */
 
 #define AXON_INPUT_MAX 4096
 #define PROMPT_MAX 1024
@@ -24,6 +27,11 @@ static void sigint_handler(int sig)
 
 static void print_prompt(void)
 {
+    /* No interactive prompt when input is piped (e.g. e2e tests, scripts),
+     * so stdout/stderr stay clean and assertable. */
+    if (!isatty(STDIN_FILENO))
+        return;
+
     char cwd[PROMPT_MAX];
     if (getcwd(cwd, sizeof(cwd)) == NULL) {
         strncpy(cwd, "???", sizeof(cwd));
@@ -106,6 +114,35 @@ int main(void)
             char *ctx_json = context_build_ai_json(cwd, 0);
             ai_suggest(intent, ctx_json ? ctx_json : "{}", cwd);
             free(ctx_json);
+            continue;
+        }
+
+        /* Sandbox: & <command> — run in the isolated executor */
+        const char *sbx_cmd = sandbox_prefix(line);
+        if (sbx_cmd != NULL) {
+            sandbox_opts_t opts = {0};   /* most restrictive defaults */
+            opts.timeout_ms = SANDBOX_DEFAULT_TIMEOUT_MS;
+
+            cmd_result_t result;
+            if (sandbox_execute(sbx_cmd, &opts, &result) != 0) {
+                fprintf(stderr, "\033[1;31maxon: sandbox: command did not run\033[0m\n");
+                last_exit_code = 1;
+                continue;
+            }
+
+            /* Record in history with the '&' prefix retained so the stored
+             * command shows it ran sandboxed. */
+            char cwd[PROMPT_MAX];
+            if (getcwd(cwd, sizeof(cwd)) == NULL)
+                strncpy(cwd, "???", sizeof(cwd));
+            context_add(line, result.exit_code, result.elapsed_ms,
+                        cwd, result.stderr_capture);
+            last_exit_code = result.exit_code;
+
+            if (result.exit_code != 0) {
+                fprintf(stderr, "\033[1;31m[exit %d | %.1fms]\033[0m\n",
+                        result.exit_code, result.elapsed_ms);
+            }
             continue;
         }
 
