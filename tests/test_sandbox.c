@@ -491,10 +491,13 @@ void test_rlimit_nproc_value_set(void)
      * RLIMIT_NPROC is set to 64. It is best-effort (the kernel does not
      * enforce it inside a nested user namespace — see the caveat in
      * sandbox.c), so this asserts the limit VALUE is applied rather than
-     * actual fork failure.
+     * actual fork failure. Read it from /proc/self/limits rather than
+     * `ulimit -u`, which is not portable ("-u" is a busybox extension; dash
+     * rejects it).
      */
     cmd_result_t result;
-    int rc = sandbox_execute("echo nproc=$(ulimit -u) 1>&2", NULL, &result);
+    int rc = sandbox_execute(
+        "grep 'Max processes' /proc/self/limits 1>&2", NULL, &result);
 
     if (!have_userns) {
         TEST_ASSERT_EQUAL_INT(-1, rc);
@@ -502,7 +505,10 @@ void test_rlimit_nproc_value_set(void)
     }
     TEST_ASSERT_EQUAL_INT(0, rc);
     TEST_ASSERT_EQUAL_INT(0, result.exit_code);
-    TEST_ASSERT_NOT_NULL(strstr(result.stderr_capture, "nproc=64"));
+    /* The grep output is just the "Max processes <soft> <hard>" line, so a
+     * "64" there is the limit value we set. */
+    TEST_ASSERT_NOT_NULL(strstr(result.stderr_capture, "Max processes"));
+    TEST_ASSERT_NOT_NULL(strstr(result.stderr_capture, "64"));
 }
 
 void test_capabilities_dropped(void)
