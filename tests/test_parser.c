@@ -497,6 +497,44 @@ void test_expand_var_in_double_quotes(void)
     unsetenv("AXON_TEST_VAR");
 }
 
+/* --- sandbox_prefix (Step 12) --- */
+
+void test_sandbox_prefix_basic(void)
+{
+    const char *cmd = sandbox_prefix("& echo hi");
+    TEST_ASSERT_NOT_NULL(cmd);
+    TEST_ASSERT_EQUAL_STRING("echo hi", cmd);
+}
+
+void test_sandbox_prefix_extra_whitespace(void)
+{
+    const char *cmd = sandbox_prefix("&\t  ls -la");
+    TEST_ASSERT_NOT_NULL(cmd);
+    TEST_ASSERT_EQUAL_STRING("ls -la", cmd);
+}
+
+void test_sandbox_prefix_rejects_chain_and(void)
+{
+    /* "&&" is the chain operator, not the sandbox prefix. */
+    TEST_ASSERT_NULL(sandbox_prefix("true && echo x"));
+    TEST_ASSERT_NULL(sandbox_prefix("&& echo x"));
+}
+
+void test_sandbox_prefix_rejects_no_separator(void)
+{
+    TEST_ASSERT_NULL(sandbox_prefix("&echo"));
+}
+
+void test_sandbox_prefix_rejects_empty_command(void)
+{
+    TEST_ASSERT_NULL(sandbox_prefix("&   "));
+}
+
+void test_sandbox_prefix_rejects_plain_command(void)
+{
+    TEST_ASSERT_NULL(sandbox_prefix("echo hi"));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -545,5 +583,11 @@ int main(void)
     RUN_TEST(test_chain_empty_segment);
     RUN_TEST(test_expand_multiple_vars);
     RUN_TEST(test_expand_var_in_double_quotes);
+    RUN_TEST(test_sandbox_prefix_basic);
+    RUN_TEST(test_sandbox_prefix_extra_whitespace);
+    RUN_TEST(test_sandbox_prefix_rejects_chain_and);
+    RUN_TEST(test_sandbox_prefix_rejects_no_separator);
+    RUN_TEST(test_sandbox_prefix_rejects_empty_command);
+    RUN_TEST(test_sandbox_prefix_rejects_plain_command);
     return UNITY_END();
 }

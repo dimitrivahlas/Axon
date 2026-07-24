@@ -69,4 +69,13 @@ typedef struct {
  */
 int parse_chain(char *line, chain_t *chain);
 
+/*
+ * Detect the sandbox prefix. If line begins with "& " (or "&\t"), return a
+ * pointer into line at the command that follows (leading whitespace skipped).
+ * Returns NULL if there is no sandbox prefix: a leading "&&" (chain operator),
+ * "&" with no separator, or "& " with no command all return NULL.
+ * Does not modify the input.
+ */
+const char *sandbox_prefix(const char *line);
+
 #endif

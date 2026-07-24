@@ -18,6 +18,7 @@ AI assistance is opt-in. Axon doesn't interrupt you or second-guess your command
 
 - **`? <question>`** — Ask a question with full execution context. Axon sends your recent command history, exit codes, output, and working directory to Claude so it can give an answer grounded in what actually happened.
 - **`!! <intent>`** — Describe what you want to do. Axon suggests a command based on your intent, your environment, and your history.
+- **`& <command>`** — Run a command in the sandbox executor. It runs in isolated namespaces (pid, user, mount, network) with a read-only working directory, resource limits, all capabilities dropped, a seccomp syscall filter, and a 30-second timeout. Nothing is sandboxed unless you prefix it with `&`.
 
 Everything else works like a normal shell. `ls`, `cd`, pipes, redirects — they all work. Axon just knows more about what happened.
 

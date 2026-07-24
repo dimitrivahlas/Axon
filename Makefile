@@ -4,7 +4,7 @@ CFLAGS = -Wall -Wextra -Werror -std=c11
 CXX = g++
 CXXFLAGS = -Wall -Wextra -Werror -std=c++17
 
-LDFLAGS = -lcurl -lsqlite3 -lstdc++
+LDFLAGS = -lcurl -lsqlite3 -lstdc++ -lseccomp
 
 SRC_DIR = shell
 SRC = $(wildcard $(SRC_DIR)/*.c)
@@ -20,14 +20,13 @@ SBX_OBJ = $(SBX_SRC:.c=.o)
 
 BIN = axon
 
-.PHONY: all build clean docker run test
+.PHONY: all build clean docker run test e2e
 
 all: build
 
-# Sandbox objects are built (not yet linked into the shell) so warnings surface
-build: $(BIN) $(SBX_OBJ)
+build: $(BIN)
 
-$(BIN): $(OBJ) $(CTX_OBJ)
+$(BIN): $(OBJ) $(CTX_OBJ) $(SBX_OBJ)
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
 $(SRC_DIR)/%.o: $(SRC_DIR)/%.c
@@ -93,3 +92,8 @@ test: test_parser test_executor test_builtins test_storage test_context test_git
 	@echo ""
 	@echo "=== Sandbox Tests ==="
 	@./$(TEST_DIR)/test_sandbox
+
+# End-to-end tests: drive the built ./axon binary over stdin and assert on
+# its output. Requires the binary, hence the build dependency.
+e2e: build
+	@sh $(TEST_DIR)/e2e/run.sh
