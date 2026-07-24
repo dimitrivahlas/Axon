@@ -216,6 +216,67 @@ void test_timing_is_captured(void)
     TEST_ASSERT_TRUE(result.elapsed_ms < 5000.0);
 }
 
+/* --- Timeout enforcement (Step 8) --- */
+
+void test_timeout_allows_fast_command(void)
+{
+    /* A command that finishes well within the limit runs normally */
+    sandbox_opts_t opts = {0};
+    opts.timeout_ms = 5000;
+
+    cmd_result_t result;
+    int rc = sandbox_execute("true", &opts, &result);
+    if (!have_userns) {
+        TEST_ASSERT_EQUAL_INT(-1, rc);
+        return;
+    }
+    TEST_ASSERT_EQUAL_INT(0, rc);
+    TEST_ASSERT_EQUAL_INT(0, result.exit_code);
+}
+
+void test_timeout_kills_slow_command(void)
+{
+    /*
+     * A command that outlives its timeout is SIGKILLed. The invocation still
+     * succeeds (rc 0); the timeout surfaces as exit code 124 plus a notice in
+     * the captured stderr. elapsed_ms must be far below the command's own
+     * 5 s sleep, proving it was cut short rather than run to completion.
+     */
+    sandbox_opts_t opts = {0};
+    opts.timeout_ms = 200;
+
+    cmd_result_t result;
+    int rc = sandbox_execute("sleep 5", &opts, &result);
+    if (!have_userns) {
+        TEST_ASSERT_EQUAL_INT(-1, rc);
+        return;
+    }
+    TEST_ASSERT_EQUAL_INT(0, rc);
+    TEST_ASSERT_EQUAL_INT(SANDBOX_TIMEOUT_EXIT, result.exit_code);
+    TEST_ASSERT_NOT_NULL(strstr(result.stderr_capture, "timed out"));
+    TEST_ASSERT_TRUE(result.elapsed_ms < 3000.0);
+}
+
+void test_timeout_zero_is_unlimited(void)
+{
+    /*
+     * timeout_ms == 0 means no limit: a command that sleeps for a second
+     * still runs to completion and exits 0 (never reported as a timeout).
+     */
+    sandbox_opts_t opts = {0};
+    opts.timeout_ms = 0;
+
+    cmd_result_t result;
+    int rc = sandbox_execute("sleep 1", &opts, &result);
+    if (!have_userns) {
+        TEST_ASSERT_EQUAL_INT(-1, rc);
+        return;
+    }
+    TEST_ASSERT_EQUAL_INT(0, rc);
+    TEST_ASSERT_EQUAL_INT(0, result.exit_code);
+    TEST_ASSERT_TRUE(result.elapsed_ms >= 1000.0);
+}
+
 int main(void)
 {
     have_userns = userns_available();
@@ -237,5 +298,8 @@ int main(void)
     RUN_TEST(test_network_allowed_when_opted_in);
     RUN_TEST(test_mount_namespace_isolated);
     RUN_TEST(test_timing_is_captured);
+    RUN_TEST(test_timeout_allows_fast_command);
+    RUN_TEST(test_timeout_kills_slow_command);
+    RUN_TEST(test_timeout_zero_is_unlimited);
     return UNITY_END();
 }
