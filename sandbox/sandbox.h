@@ -36,6 +36,13 @@ typedef struct {
  * every new netns with inert pseudo-devices (tunl0, gre0, sit0, ...) in
  * addition to the loopback.
  *
+ * Resource limits & privileges: every sandboxed command runs under fixed
+ * setrlimit() caps (open files, file size, and address space are enforced;
+ * process count is best-effort inside the user namespace) and with all
+ * capabilities dropped plus NO_NEW_PRIVS, so it executes unprivileged and
+ * cannot exhaust host resources. If any limit or the capability drop cannot
+ * be applied, the command does not run (fail closed).
+ *
  * Read-only cwd: if opts->read_only_cwd is set, the working directory is
  * bind-remounted read-only inside the sandbox, so the command can read but
  * not create, modify, or delete files under it. Only the cwd subtree is

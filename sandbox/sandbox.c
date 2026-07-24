@@ -13,10 +13,45 @@
 #include <limits.h>
 #include <poll.h>
 #include <sys/mount.h>
+#include <sys/resource.h>
+#include <sys/prctl.h>
+#include <sys/syscall.h>
 #include "sandbox.h"
+
+/*
+ * Minimal capset(2) ABI, declared locally so the sandbox does not depend on
+ * the linux-headers package (Alpine's musl-dev ships no <linux/capability.h>).
+ * The layout and version constant are stable kernel uapi.
+ */
+#ifndef _LINUX_CAPABILITY_VERSION_3
+#define _LINUX_CAPABILITY_VERSION_3 0x20080522
+#endif
+#define SANDBOX_CAP_LAST 63   /* upper bound for the capability-drop loop */
+
+typedef struct { unsigned int version; int pid; } sandbox_cap_header_t;
+typedef struct { unsigned int effective, permitted, inheritable; } sandbox_cap_data_t;
 
 #define SANDBOX_STACK_SIZE (1024 * 1024)  /* 1 MB stack for clone child */
 #define SANDBOX_CAPTURE_MAX AXON_CAPTURE_MAX
+
+/*
+ * Hardcoded resource limits applied to the child before exec (Step 10).
+ * These are defense-in-depth caps so a runaway or hostile command cannot
+ * exhaust host resources: bound the process/thread count, open files, the
+ * size of any file it writes, and its virtual address space.
+ *
+ * NOTE on NPROC: RLIMIT_FSIZE, RLIMIT_NOFILE and RLIMIT_AS are enforced by
+ * the kernel directly. RLIMIT_NPROC, however, is accounted per user via the
+ * ucounts mechanism and is NOT reliably enforced inside a nested user
+ * namespace, so it is best-effort here — set (and honored on hosts/kernels
+ * that do enforce it) but not a guaranteed fork-bomb cap. Hard process-count
+ * limiting in a user namespace requires cgroup v2 pids.max, a separate
+ * mechanism planned for a later hardening step.
+ */
+#define SANDBOX_RLIMIT_NPROC   64                        /* processes/threads */
+#define SANDBOX_RLIMIT_NOFILE  256                       /* open file descriptors */
+#define SANDBOX_RLIMIT_FSIZE   (64UL * 1024 * 1024)      /* max file size: 64 MB */
+#define SANDBOX_RLIMIT_AS      (512UL * 1024 * 1024)     /* address space: 512 MB */
 
 /* Arguments passed to the cloned child process */
 typedef struct {
@@ -78,6 +113,75 @@ static int setup_uid_gid_map(pid_t child_pid)
         fprintf(stderr, "axon: sandbox: failed to write gid_map\n");
         return -1;
     }
+
+    return 0;
+}
+
+/*
+ * Set a resource limit to a fixed value (soft and hard equal).
+ * Returns 0 on success, -1 on failure (errno set by setrlimit).
+ */
+static int set_rlimit(int resource, rlim_t value)
+{
+    struct rlimit rl = { .rlim_cur = value, .rlim_max = value };
+    return setrlimit(resource, &rl);
+}
+
+/*
+ * Apply all sandbox resource limits. Called in the child just before exec.
+ * Returns 0 if every limit was set, -1 on the first failure (errno set).
+ */
+static int apply_rlimits(void)
+{
+    if (set_rlimit(RLIMIT_NPROC, SANDBOX_RLIMIT_NPROC) != 0)
+        return -1;
+    if (set_rlimit(RLIMIT_NOFILE, SANDBOX_RLIMIT_NOFILE) != 0)
+        return -1;
+    if (set_rlimit(RLIMIT_FSIZE, SANDBOX_RLIMIT_FSIZE) != 0)
+        return -1;
+    if (set_rlimit(RLIMIT_AS, SANDBOX_RLIMIT_AS) != 0)
+        return -1;
+    return 0;
+}
+
+/*
+ * Drop every capability from the child before it execs.
+ *
+ * Inside the user namespace the child is root and holds a full capability
+ * set, letting the command perform privileged operations (mount, load
+ * modules, etc). Clearing the capabilities makes the exec'd command run
+ * unprivileged — the core of the sandbox's least-privilege posture.
+ *
+ * (This also removes the capability-based bypass of RLIMIT_NPROC, though
+ * that limit is still not enforced inside a nested user namespace for the
+ * separate ucounts reason documented at SANDBOX_RLIMIT_NPROC.)
+ *
+ * This must run AFTER the mount setup (which needs CAP_SYS_ADMIN) and just
+ * before exec. NO_NEW_PRIVS also stops a setuid/file-capability binary from
+ * regaining privilege across the exec. Returns 0 on success, -1 on failure.
+ */
+static int drop_capabilities(void)
+{
+    /* Prevent regaining privileges via a setuid/fcaps binary after exec. */
+    if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0)
+        return -1;
+
+    /* Empty the bounding set so no capability can ever be picked back up.
+     * Caps beyond this kernel's last known one return EINVAL — harmless. */
+    for (int cap = 0; cap <= SANDBOX_CAP_LAST; cap++) {
+        if (prctl(PR_CAPBSET_DROP, cap, 0, 0, 0) != 0 && errno != EINVAL)
+            return -1;
+    }
+
+    /* Clear the effective, permitted, and inheritable sets. With no effective
+     * capabilities, capable(CAP_SYS_ADMIN) is false and RLIMIT_NPROC applies. */
+    sandbox_cap_header_t hdr = {
+        .version = _LINUX_CAPABILITY_VERSION_3,
+        .pid = 0,   /* 0 = the calling thread */
+    };
+    sandbox_cap_data_t data[2] = {{0, 0, 0}, {0, 0, 0}};
+    if (syscall(SYS_capset, &hdr, data) != 0)
+        return -1;
 
     return 0;
 }
@@ -229,6 +333,27 @@ static int sandbox_child(void *arg)
                     strerror(errno));
             _exit(126);
         }
+    }
+
+    /*
+     * Apply resource limits last, just before exec, so they bound the
+     * command itself (and everything it spawns). Fail closed: if any limit
+     * cannot be set, do not run the command.
+     */
+    if (apply_rlimits() != 0) {
+        fprintf(stderr, "axon: sandbox: failed to set resource limits: %s\n",
+                strerror(errno));
+        _exit(126);
+    }
+
+    /*
+     * Shed all capabilities last, after the privileged mount setup is done,
+     * so the command runs unprivileged (least privilege).
+     */
+    if (drop_capabilities() != 0) {
+        fprintf(stderr, "axon: sandbox: failed to drop capabilities: %s\n",
+                strerror(errno));
+        _exit(126);
     }
 
     /* Execute the command via /bin/sh -c */
