@@ -16,6 +16,7 @@
 #include <sys/resource.h>
 #include <sys/prctl.h>
 #include <sys/syscall.h>
+#include <seccomp.h>
 #include "sandbox.h"
 
 /*
@@ -187,6 +188,87 @@ static int drop_capabilities(void)
 }
 
 /*
+ * Install a seccomp syscall filter as the final step before exec.
+ *
+ * The default action is SCMP_ACT_ERRNO(EPERM): any syscall not on the
+ * allowlist fails with EPERM rather than killing the process, so a denial is
+ * observable in the command's own error output instead of a silent SIGSYS.
+ * Dangerous syscalls (mount, umount2, ptrace, reboot, kexec_load, the module
+ * calls, setns, and the socket family — the network namespace is isolated)
+ * are simply omitted from the list and therefore denied.
+ *
+ * The allowlist is resolved by name at runtime; a name unknown to this
+ * architecture/libc is skipped rather than failing, so the same list works
+ * across musl (Alpine) and glibc (the CI host), whose startup syscalls
+ * differ. NO_NEW_PRIVS (set in drop_capabilities) lets an unprivileged
+ * process load the filter. Returns 0 on success, -1 on failure.
+ */
+static int apply_seccomp(void)
+{
+    /* Syscalls needed by /bin/sh (busybox ash / dash), common coreutils, and
+     * the libc startup/runtime on both musl and glibc. */
+    static const char *allow[] = {
+        /* process, exec, threads */
+        "execve", "execveat", "exit", "exit_group", "wait4", "waitid",
+        "clone", "clone3", "fork", "vfork",
+        "set_tid_address", "set_robust_list", "rseq", "prctl", "arch_prctl",
+        "gettid", "getpid", "getppid", "getuid", "geteuid", "getgid", "getegid",
+        "getgroups", "getpgrp", "getpgid", "getsid", "setpgid", "setsid",
+        "uname", "sysinfo", "getcpu",
+        /* memory */
+        "brk", "mmap", "mmap2", "munmap", "mprotect", "mremap", "madvise",
+        /* file descriptors and I/O */
+        "read", "write", "readv", "writev", "pread64", "pwrite64",
+        "open", "openat", "openat2", "close", "close_range",
+        "stat", "fstat", "lstat", "newfstatat", "statx",
+        "stat64", "lstat64", "fstat64", "fstatat64",
+        "access", "faccessat", "faccessat2",
+        "lseek", "_llseek", "dup", "dup2", "dup3", "pipe", "pipe2",
+        "fcntl", "fcntl64", "ioctl", "getdents", "getdents64",
+        "readlink", "readlinkat", "getcwd", "chdir", "fchdir",
+        "unlink", "unlinkat", "rename", "renameat", "renameat2",
+        "mkdir", "mkdirat", "rmdir", "link", "linkat", "symlink", "symlinkat",
+        "chmod", "fchmod", "fchmodat", "chown", "fchown", "fchownat", "lchown",
+        "umask", "truncate", "ftruncate", "ftruncate64",
+        "utimensat", "utimes", "futimesat",
+        /* time, waiting, polling */
+        "nanosleep", "clock_nanosleep", "clock_gettime", "clock_getres",
+        "clock_gettime64", "gettimeofday", "time",
+        "poll", "ppoll", "select", "pselect6", "futex", "futex_time64",
+        "epoll_create1", "epoll_ctl", "epoll_wait", "epoll_pwait", "eventfd2",
+        /* signals */
+        "rt_sigaction", "rt_sigprocmask", "rt_sigreturn", "rt_sigpending",
+        "rt_sigtimedwait", "rt_sigsuspend", "rt_sigqueueinfo", "sigaltstack",
+        "kill", "tgkill", "tkill", "pause",
+        /* limits, scheduling, misc */
+        "getrlimit", "setrlimit", "prlimit64", "getrusage",
+        "sched_getaffinity", "sched_setaffinity", "sched_yield",
+        "getrandom", "getpriority", "setpriority", "personality", "capget",
+    };
+
+    scmp_filter_ctx ctx = seccomp_init(SCMP_ACT_ERRNO(EPERM));
+    if (ctx == NULL)
+        return -1;
+
+    int result = 0;
+    for (size_t i = 0; i < sizeof(allow) / sizeof(allow[0]); i++) {
+        int nr = seccomp_syscall_resolve_name(allow[i]);
+        if (nr == __NR_SCMP_ERROR)
+            continue;   /* syscall unknown on this arch/libc — skip it */
+        if (seccomp_rule_add(ctx, SCMP_ACT_ALLOW, nr, 0) != 0) {
+            result = -1;
+            break;
+        }
+    }
+
+    if (result == 0 && seccomp_load(ctx) != 0)
+        result = -1;
+
+    seccomp_release(ctx);
+    return result;
+}
+
+/*
  * Milliseconds remaining until deadline (may be <= 0 if already elapsed).
  */
 static long ms_until(const struct timespec *deadline)
@@ -352,6 +434,18 @@ static int sandbox_child(void *arg)
      */
     if (drop_capabilities() != 0) {
         fprintf(stderr, "axon: sandbox: failed to drop capabilities: %s\n",
+                strerror(errno));
+        _exit(126);
+    }
+
+    /*
+     * Install the seccomp filter last, immediately before exec, so it covers
+     * the exec'd command and everything it runs. Fail closed if it cannot be
+     * loaded. NO_NEW_PRIVS was already set during the capability drop, which
+     * is what lets an unprivileged process load a filter.
+     */
+    if (apply_seccomp() != 0) {
+        fprintf(stderr, "axon: sandbox: failed to apply seccomp filter: %s\n",
                 strerror(errno));
         _exit(126);
     }
