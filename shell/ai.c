@@ -58,36 +58,39 @@ static const char *extract_text(const char *json)
     return start;
 }
 
-static void print_extracted_text(const char *start)
+/* Decode the escaped JSON string value at `start` (up to its closing quote)
+ * into out, unescaping \n \" \\ \t. out is always NUL-terminated. */
+static void decode_extracted_text(const char *start, char *out, size_t out_max)
 {
-    fprintf(stdout, "\n\033[1;33m--- axon ai ---\033[0m\n");
-
+    size_t pos = 0;
     const char *p = start;
-    while (*p != '\0') {
+    while (*p != '\0' && pos < out_max - 1) {
         if (*p == '"' && (p == start || *(p - 1) != '\\'))
             break;
         if (*p == '\\' && *(p + 1) == 'n') {
-            fputc('\n', stdout);
+            out[pos++] = '\n';
             p += 2;
         } else if (*p == '\\' && *(p + 1) == '"') {
-            fputc('"', stdout);
+            out[pos++] = '"';
             p += 2;
         } else if (*p == '\\' && *(p + 1) == '\\') {
-            fputc('\\', stdout);
+            out[pos++] = '\\';
             p += 2;
         } else if (*p == '\\' && *(p + 1) == 't') {
-            fputc('\t', stdout);
+            out[pos++] = '\t';
             p += 2;
         } else {
-            fputc(*p, stdout);
+            out[pos++] = *p;
             p++;
         }
     }
-
-    fprintf(stdout, "\n\033[1;33m--- end ---\033[0m\n\n");
+    out[pos] = '\0';
 }
 
-static int call_claude(const char *system_prompt, const char *user_msg)
+/* Perform the API call and decode Claude's reply text into `reply`.
+ * Returns 0 on success, -1 on error. */
+static int call_claude(const char *system_prompt, const char *user_msg,
+                       char *reply, size_t reply_max)
 {
     const char *api_key = getenv("ANTHROPIC_API_KEY");
     if (api_key == NULL || api_key[0] == '\0') {
@@ -164,11 +167,18 @@ static int call_claude(const char *system_prompt, const char *user_msg)
         return -1;
     }
 
-    print_extracted_text(text);
+    decode_extracted_text(text, reply, reply_max);
 
     curl_slist_free_all(headers);
     curl_easy_cleanup(curl);
     return 0;
+}
+
+/* Print Claude's reply with the same decoration the shell has always used. */
+static void print_reply(const char *reply)
+{
+    fprintf(stdout, "\n\033[1;33m--- axon ai ---\033[0m\n%s\n"
+                    "\033[1;33m--- end ---\033[0m\n\n", reply);
 }
 
 int ai_ask(const char *question, const char *context_json, const char *cwd)
@@ -188,11 +198,38 @@ int ai_ask(const char *question, const char *context_json, const char *cwd)
         "Shell context: %s\n\nQuestion: %s",
         context_json, question);
 
-    return call_claude(system_prompt, user_msg);
+    char reply[RESPONSE_BUF_MAX];
+    if (call_claude(system_prompt, user_msg, reply, sizeof(reply)) != 0)
+        return -1;
+
+    print_reply(reply);
+    return 0;
 }
 
-int ai_suggest(const char *intent, const char *context_json, const char *cwd)
+/* Trim leading/trailing whitespace (including newlines) in place. */
+static void trim(char *s)
 {
+    char *start = s;
+    while (*start == ' ' || *start == '\t' || *start == '\n' || *start == '\r')
+        start++;
+    if (start != s)
+        memmove(s, start, strlen(start) + 1);
+
+    size_t len = strlen(s);
+    while (len > 0) {
+        char c = s[len - 1];
+        if (c != ' ' && c != '\t' && c != '\n' && c != '\r')
+            break;
+        s[--len] = '\0';
+    }
+}
+
+int ai_suggest(const char *intent, const char *context_json, const char *cwd,
+               char *out_command, size_t out_max)
+{
+    if (out_command != NULL && out_max > 0)
+        out_command[0] = '\0';
+
     char system_prompt[2048];
     snprintf(system_prompt, sizeof(system_prompt),
         "You are Axon, an AI assistant embedded in a Linux shell. "
@@ -208,5 +245,16 @@ int ai_suggest(const char *intent, const char *context_json, const char *cwd)
         "Shell context: %s\n\nI want to: %s",
         context_json, intent);
 
-    return call_claude(system_prompt, user_msg);
+    char reply[RESPONSE_BUF_MAX];
+    if (call_claude(system_prompt, user_msg, reply, sizeof(reply)) != 0)
+        return -1;
+
+    trim(reply);
+    print_reply(reply);
+
+    if (out_command != NULL && out_max > 0) {
+        strncpy(out_command, reply, out_max - 1);
+        out_command[out_max - 1] = '\0';
+    }
+    return 0;
 }

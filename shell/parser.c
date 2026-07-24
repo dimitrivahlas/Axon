@@ -342,3 +342,13 @@ const char *sandbox_prefix(const char *line)
 
     return cmd;
 }
+
+int is_affirmative(const char *answer)
+{
+    if (answer == NULL)
+        return 0;
+    while (*answer == ' ' || *answer == '\t')
+        answer++;
+    /* Default is No: only an explicit y/Y (y, yes, ...) counts as yes. */
+    return (*answer == 'y' || *answer == 'Y') ? 1 : 0;
+}

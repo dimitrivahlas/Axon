@@ -97,6 +97,17 @@ check_contains "sandbox propagates nonzero exit" "exit 3" \
 check "&& is still the chain operator, not sandbox" "chained" \
     "$(run_out 'true && echo chained')"
 
+# --- AI-driven flow (Step 13; opt-in, needs a real API key, excluded from CI) ---
+#
+# The suggested command is nondeterministic, so we only assert the flow that is
+# stable regardless of what Claude returns: after `!!`, the shell offers to run
+# the suggestion in the sandbox, and answering "n" declines without running it.
+if [ "${AXON_E2E_AI:-0}" = "1" ] && [ -n "${ANTHROPIC_API_KEY:-}" ]; then
+    check_contains "!! offers to run suggestion in sandbox" "run in sandbox?" \
+        "$(run_err '!! print the word hello
+n')"
+fi
+
 # --- Summary ---
 
 total=$((pass + fail))
